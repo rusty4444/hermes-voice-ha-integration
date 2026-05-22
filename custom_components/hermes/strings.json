@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "url": "Hermes Agent URL",
+          "token": "Hermes Access Token"
+        }
+      }
+    },
+    "error": {
+      "url_required": "URL is required",
+      "url_invalid": "URL must start with http:// or https://",
+      "token_required": "Access token is required"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "entity_filter": "Entity IDs to monitor (empty = all)"
+        }
+      }
+    }
+  }
+}

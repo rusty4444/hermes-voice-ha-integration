@@ -1,0 +1,23 @@
+[project]
+name = "hermes-voice-ha-integration"
+version = "0.1.0"
+description = "Home Assistant voice stack integration for Hermes Agent"
+authors = [{name = "Sam Russell", email = "sam.russell@samprim.net"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.9",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
