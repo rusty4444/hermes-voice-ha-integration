@@ -74,7 +74,7 @@ class TestEntityCache:
 class TestEntityIDRegex:
     """Entity ID validation."""
 
-    _ENTITY_ID_RE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z0-9_]+$")
+    _ENTITY_ID_RE = re.compile(r"^[a-z][a-z0-9_]*\.[a-z0-9_]+$")
 
     def test_valid_entity_ids(self):
         assert self._ENTITY_ID_RE.match("light.living_room")
@@ -256,7 +256,19 @@ class TestCompoundTools:
         from plugins.home_assistant.compound import _handle_control_light_and_set_scene
         result = _handle_control_light_and_set_scene({"scene": "scene.nonexistent"})
         data = json.loads(result)
-        assert "error" in data
+        # Now routes through call_service which may attempt a real HA call
+        # if env vars are set. Accept either a direct error or an HTTP error.
+        if "error" in data:
+            pass  # direct error from handler
+        elif data.get("results"):
+            # result may nest: results[0].result.error or results[0].error
+            has_err = any(
+                r.get("error") or (isinstance(r, dict) and r.get("result", {}).get("error"))
+                for r in data["results"]
+            )
+            assert has_err, f"Expected error in results: {data}"
+        else:
+            pytest.fail(f"No error in response: {data}")
 
     def test_turn_off_all_except_no_entities(self, with_hass, monkeypatch):
         from plugins.home_assistant.ha_assistant import _entity_cache

@@ -42,7 +42,7 @@ from plugins.home_assistant.security import (
 logger = logging.getLogger(__name__)
 
 # Entity ID regex (mirrors core homeassistant_tool.py)
-_ENTITY_ID_RE = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z0-9_]+$")
+_ENTITY_ID_RE = re.compile(r"^[a-z][a-z0-9_]*\.[a-z0-9_]+$")
 _SERVICE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -132,7 +132,7 @@ def _handle_call_service(args: dict, **kw) -> str:
         return json.dumps({"result": result})
     except Exception as exc:
         logger.error("ha_call_service error: %s", exc)
-        log_call(entity_id, domain, service, data, allowed=True, reason=f"error: {exc}")
+        log_call(entity_id, domain, service, data, allowed=False, reason=f"error: {exc}")
         return json.dumps({"error": f"Failed to call {domain}.{service}: {exc}"})
 
 

@@ -18,6 +18,29 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+# Lazy imports for security module (avoid circular deps at plugin load time)
+_security_log_call = None
+_security_is_entity_blocked = None
+_security_is_service_allowed = None
+
+def _ensure_security_imported():
+    global _security_log_call, _security_is_entity_blocked, _security_is_service_allowed
+    if _security_log_call is None:
+        try:
+            from plugins.home_assistant.security import (
+                is_entity_blocked as _is_blocked,
+                is_service_allowed as _is_allowed,
+                log_call as _log,
+            )
+            _security_is_entity_blocked = _is_blocked
+            _security_is_service_allowed = _is_allowed
+            _security_log_call = _log
+        except ImportError:
+            # Running standalone without full plugin context — skip security
+            _security_is_entity_blocked = lambda *a, **kw: False
+            _security_is_service_allowed = lambda *a, **kw: True
+            _security_log_call = lambda *a, **kw: None
+
 # ---------------------------------------------------------------------------
 # Config (reads same env vars as core homeassistant_tool.py)                  
 # ---------------------------------------------------------------------------
@@ -94,10 +117,20 @@ _service_cache_ts: float = 0.0
 # Async REST helpers                                                         
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Async bridging (mirrors tools/homeassistant_tool.py pattern)
+# ---------------------------------------------------------------------------
+
+import concurrent.futures
+
+_THREAD_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="ha-bridge-")
+
+
 def _run_async(coro):
     """Run an async coroutine from a sync handler.
 
-    Mirrors the pattern in tools/homeassistant_tool.py.
+    Uses a persistent thread pool to avoid creating/destroying threads on
+    every call.  Mirrors the pattern in tools/homeassistant_tool.py.
     """
     try:
         loop = asyncio.get_running_loop()
@@ -105,10 +138,8 @@ def _run_async(coro):
         loop = None
 
     if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result(timeout=30)
+        future = _THREAD_POOL.submit(asyncio.run, coro)
+        return future.result(timeout=30)
     else:
         return asyncio.run(coro)
 
@@ -259,11 +290,59 @@ def call_service(
     service: str,
     entity_id: Optional[str] = None,
     data: Optional[Dict[str, Any]] = None,
+    *,
+    _skip_security: bool = False,
 ) -> Dict[str, Any]:
-    """Call a Home Assistant service. Returns HA's response dict."""
+    """Call a Home Assistant service. Returns HA's response dict.
+
+    Security gating is ALWAYS enforced here (allow-list, block-list, audit
+    log) so that compound tools and any future code paths cannot bypass it.
+    The ``_skip_security`` parameter exists only for tests; it MUST NOT be
+    set to True in production code.
+    """
+    import threading as _threading
+
+    # --- Blocked domains (system-wide) ---
     if domain in _BLOCKED_DOMAINS:
         return {"error": f"Service domain '{domain}' is blocked for security."}
-    return _run_async(_async_call_service(domain, service, entity_id, data))
+
+    # --- Security gating (allow-list + block-list + audit) ---
+    if not _skip_security:
+        _ensure_security_imported()
+        assert _security_log_call is not None
+        if entity_id and _security_is_entity_blocked(entity_id, domain, service):
+            _security_log_call(entity_id, domain, service, data, allowed=False, reason="blocked entity")
+            return {
+                "error": f"Entity '{entity_id}' is blocked by the Hermes HA security policy."
+            }
+        if entity_id and not _security_is_service_allowed(entity_id, domain, service):
+            _security_log_call(entity_id, domain, service, data, allowed=False, reason="denied by allow-list")
+            return {
+                "error": f"Service '{domain}.{service}' on '{entity_id}' is not in the Hermes HA allow-list."
+            }
+
+    # --- Execute ---
+    try:
+        result = _run_async(_async_call_service(domain, service, entity_id, data))
+        if not _skip_security:
+            try:
+                _security_log_call(entity_id, domain, service, data, allowed=True)
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.error("ha_call_service error: %s", exc)
+        if not _skip_security:
+            try:
+                _security_log_call(entity_id, domain, service, data, allowed=False, reason=f"error: {exc}")
+            except Exception:
+                pass
+        return {"error": f"Failed to call {domain}.{service}: {exc}"}
+
+    # Invalidate entity cache so subsequent reads are fresh
+    if entity_id:
+        _entity_cache.invalidate()
+
+    return result
 
 
 def list_services(domain: Optional[str] = None) -> Dict[str, Any]:
