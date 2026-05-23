@@ -1,5 +1,7 @@
 # Hermes × Home Assistant — Voice Stack Integration
 
+![Hermes + Home Assistant Logo](logo.png)
+
 **"Your entire smart home, controlled by your own on-device AI. No cloud. No latency. No subscription."**
 
 A three-component integration that wires Hermes Agent to Home Assistant and adds a full

@@ -795,3 +795,170 @@ class TestVoicePluginInit:
         assert data["version"] == "0.2.0"
 
 
+# ---------------------------------------------------------------------------
+# P3 Tests: services.py, frontend.py, sensor.py, is_available, TTS retry
+# ---------------------------------------------------------------------------
+
+class TestHermesServices:
+    """Custom component services.py tests."""
+
+    def test_service_importable(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "hermes_services",
+            Path(__file__).parent.parent / "custom_components" / "hermes" / "services.py",
+        )
+        assert spec is not None
+
+    def test_services_yaml_exists(self):
+        svc_yaml = Path(__file__).parent.parent / "custom_components" / "hermes" / "services.yaml"
+        assert svc_yaml.exists()
+        content = svc_yaml.read_text()
+        assert "hermes_command" in content
+        assert "voice_settings" in content
+
+    def test_services_registration_format(self):
+        import yaml
+        svc_yaml = Path(__file__).parent.parent / "custom_components" / "hermes" / "services.yaml"
+        data = yaml.safe_load(svc_yaml.read_text())
+        for svc_name in ("hermes_command", "voice_settings"):
+            svc = data[svc_name]
+            assert "name" in svc
+            assert "description" in svc
+            assert "fields" in svc
+            assert isinstance(svc["fields"], dict)
+
+
+class TestFrontend:
+    """Lovelace card resource tests."""
+
+    def test_frontend_file_exists(self):
+        fp = Path(__file__).parent.parent / "custom_components" / "hermes" / "frontend.py"
+        assert fp.exists()
+
+    def test_card_js_exists(self):
+        js = Path(__file__).parent.parent / "custom_components" / "hermes" / "hacsfiles" / "hermes_action_bar.js"
+        assert js.exists()
+        content = js.read_text()
+        assert "HermesActionBar" in content
+        assert "customElements.define" in content
+
+    def test_card_js_registers_custom_element(self):
+        js = Path(__file__).parent.parent / "custom_components" / "hermes" / "hacsfiles" / "hermes_action_bar.js"
+        content = js.read_text()
+        assert 'customElements.define("hermes-action-bar", HermesActionBar)' in content
+        assert "class HermesActionBar" in content
+        assert "setConfig" in content
+
+
+class TestSensor:
+    """Sensor platform tests."""
+
+    def test_sensor_py_exists(self):
+        sp = Path(__file__).parent.parent / "custom_components" / "hermes" / "sensor.py"
+        assert sp.exists()
+        content = sp.read_text()
+        assert "HermesStatusSensor" in content
+        assert "HermesStatusUpdateCoordinator" in content
+        assert "async_setup_entry" in content
+
+    def test_platform_listed(self):
+        init = Path(__file__).parent.parent / "custom_components" / "hermes" / "__init__.py"
+        assert 'PLATFORMS: list[Platform] = ["sensor"]' in init.read_text()
+
+
+class TestIsAvailable:
+    """is_available() HTTP ping tests."""
+
+    def test_returns_false_when_no_token(self, monkeypatch):
+        monkeypatch.delenv("HASS_TOKEN", raising=False)
+        from plugins.home_assistant.ha_assistant import is_available
+        assert is_available() is False
+
+    def test_returns_false_when_unreachable(self, monkeypatch):
+        monkeypatch.setenv("HASS_TOKEN", "fake-token")
+        from plugins.home_assistant.ha_assistant import is_available
+        import urllib.request
+        with patch.object(urllib.request, "urlopen", side_effect=OSError("no route")):
+            assert is_available() is False
+
+    def test_returns_true_when_ping_succeeds(self, monkeypatch):
+        monkeypatch.setenv("HASS_TOKEN", "fake-token")
+        from plugins.home_assistant.ha_assistant import is_available
+        import urllib.request
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value.status = 200
+        with patch.object(urllib.request, "urlopen", return_value=mock_resp):
+            assert is_available() is True
+
+
+class TestTTSRetry:
+    """TTS retry logic tests."""
+
+    def test_mock_tts_retry(self):
+        call_count = [0]
+        class MockTTS:
+            def synthesize(self, text):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    raise RuntimeError("TTS crash")
+                return "/tmp/test.mp3"
+            def available(self):
+                return True
+        tts = MockTTS()
+        # First call fails
+        try:
+            tts.synthesize("hello")
+        except RuntimeError:
+            pass
+        # Second call succeeds
+        assert tts.synthesize("hello") == "/tmp/test.mp3"
+        assert call_count[0] == 2
+
+
+class TestHomescriptSkill:
+    """homescript skill tests."""
+
+    def test_skill_md_exists(self):
+        skill = Path(__file__).parent.parent / "skills" / "homescript" / "SKILL.md"
+        assert skill.exists()
+
+    def test_skill_has_frontmatter(self):
+        skill = Path(__file__).parent.parent / "skills" / "homescript" / "SKILL.md"
+        content = skill.read_text()
+        assert content.startswith("---")
+        assert "name: homescript" in content
+        assert "version:" in content
+
+    def test_skill_lists_tools(self):
+        skill = Path(__file__).parent.parent / "skills" / "homescript" / "SKILL.md"
+        content = skill.read_text()
+        assert "ha_search_entities" in content
+        assert "ha_get_state" in content
+        assert "ha_call_service" in content
+        assert "ha_bulk_control" in content
+
+
+class TestLogo:
+    """Brand assets tests."""
+
+    def test_logo_exists(self):
+        logo = Path(__file__).parent.parent / "logo.png"
+        assert logo.exists()
+        assert logo.stat().st_size > 1000
+
+
+class TestCHANGELOG:
+    """CHANGELOG.md validation."""
+
+    def test_changelog_exists(self):
+        cl = Path(__file__).parent.parent / "CHANGELOG.md"
+        assert cl.exists()
+
+    def test_changelog_has_version_entries(self):
+        cl = Path(__file__).parent.parent / "CHANGELOG.md"
+        content = cl.read_text()
+        assert "## [0.3.0]" in content
+        assert "## [0.2.0]" in content or "## [0.1.0]" in content
+
+

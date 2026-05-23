@@ -379,8 +379,20 @@ def list_services(domain: Optional[str] = None) -> Dict[str, Any]:
 
 
 def is_available() -> bool:
-    """Check if HA is reachable."""
-    return bool(os.getenv("HASS_TOKEN"))
+    """Check if HA is reachable with a short HTTP ping; falls back to env check."""
+    import urllib.request
+    url, token = _get_config()
+    if not token:
+        return False  # no token, no point pinging
+    try:
+        req = urllib.request.Request(
+            f"{url}/api/",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            return resp.status < 400
+    except Exception:
+        return False
 
 
 def invalidate_cache() -> None:

@@ -1,0 +1,42 @@
+# services.yaml — Service definitions for the Hermes custom component.
+# HA uses this to generate the developer-tools UI and the WebSocket API schema.
+
+hermes_command:
+  name: Heres command
+  description: Execute a Home Assistant service call routed from Hermes.
+  fields:
+    domain:
+      name: Domain
+      description: The service domain (e.g., light).
+      required: true
+      selector:
+        text: {}
+    service:
+      name: Service
+      description: The service name (e.g., turn_on).
+      required: true
+      selector:
+        text: {}
+    entity_id:
+      name: Entity ID
+      description: Optional entity_id to target.
+      required: false
+      selector:
+        text: {}
+    data:
+      name: Data
+      description: Additional service data (JSON).
+      required: false
+      selector:
+        object: {}
+
+voice_settings:
+  name: Voice settings
+  description: Query HA entities for Hermes voice pipeline configuration.
+  fields:
+    query:
+      name: Query
+      description: Entity search query.
+      required: false
+      selector:
+        text: {}

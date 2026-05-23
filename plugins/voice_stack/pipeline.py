@@ -410,12 +410,18 @@ class VoicePipeline:
                 self._state.listening = False
 
     def _speak(self, text: str) -> None:
-        """Speak text through TTS + playback."""
-        try:
-            audio_path = self._tts.synthesize(text)
-            if self._media_player_entity:
-                play_audio_ha(audio_path, self._media_player_entity)
-            else:
-                play_audio_local(audio_path)
-        except Exception as exc:
-            logger.error("TTS speak failed: %s", exc)
+        """Speak text through TTS + playback with retry fallback."""
+        for attempt in (1, 2):
+            try:
+                audio_path = self._tts.synthesize(text)
+                if self._media_player_entity:
+                    play_audio_ha(audio_path, self._media_player_entity)
+                else:
+                    play_audio_local(audio_path)
+                return  # success
+            except Exception as exc:
+                logger.warning("TTS speak failed (attempt %d/2): %s", attempt, exc)
+                if attempt == 1:
+                    time.sleep(0.5)  # brief backoff before retry
+                else:
+                    logger.error("TTS speak failed after 2 attempts: %s", exc)

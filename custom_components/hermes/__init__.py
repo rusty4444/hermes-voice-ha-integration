@@ -17,15 +17,17 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_URL, CONF_TOKEN, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceResponse
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER
+from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL
+from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = []
+PLATFORMS: list[Platform] = ["sensor"]
 
 # Minimum interval between state-change pushes (seconds)
 _PUSH_INTERVAL = timedelta(seconds=0.2)
@@ -43,10 +45,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     url = entry.data.get(CONF_URL, "http://localhost:8123")
     token = entry.data.get(CONF_TOKEN, "")
-    entity_filter = entry.options.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER)
+    entity_filter = entry.data.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER)
+    verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
 
-    bridge = HermesBridge(hass, url, token, entity_filter)
+    bridge = HermesBridge(hass, url, token, entity_filter, verify_ssl)
     hass.data[DOMAIN][entry.entry_id] = bridge
+
+    # Connect WebSocket to Hermes Agent
+    await bridge.async_connect()
 
     # Register state-change listener
     entry.async_on_unload(
@@ -60,7 +66,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register HA services exposed to Hermes
     await bridge.async_register_services()
 
-    _LOGGER.info("Hermes integration set up — URL: %s", url)
+    # Register HermesActionBar Lovelace card resource
+    await _register_frontend(hass)
+
+    _LOGGER.info("Hermes integration set up — URL: %s, entities tracked: %d",
+                 url, len(entity_filter))
     return True
 
 
@@ -87,11 +97,13 @@ class HermesBridge:
         hermes_url: str,
         hermes_token: str,
         entity_filter: list[str],
+        verify_ssl: bool = True,
     ) -> None:
         self.hass = hass
         self.hermes_url = hermes_url.rstrip("/")
         self.hermes_token = hermes_token
         self.entity_filter = entity_filter
+        self.verify_ssl = verify_ssl
         self._session: Any = None
         self._ws: Any = None
         self._connected = False
@@ -148,11 +160,14 @@ class HermesBridge:
     # ------------------------------------------------------------------
 
     async def async_register_services(self) -> None:
-        """Register HA services that Hermes can call."""
-        # P0: no-op — Hermes uses the REST API for service calls.
-        # P2: register async_register_admin_service for each domain
-        # so Hermes can use native WebSocket service calls.
-        _LOGGER.debug("Hermes service registration — REST-only in P0")
+        """Register HA services that Hermes can call.
+
+        Exposes ``hermes_command`` and ``voice_settings`` services
+        so Hermes tools can control HA via its native WebSocket path
+        instead of going through REST API.
+        """
+        from .services import async_register_services as _svc
+        await _svc(self.hass)
 
     # ------------------------------------------------------------------
     # WebSocket lifecycle
@@ -160,19 +175,45 @@ class HermesBridge:
 
     async def async_connect(self) -> None:
         """Connect to Hermes Agent WebSocket."""
+        import aiohttp
+        import ssl as _ssl
+
+        ssl_context: _ssl.SSLContext | None = None
+        if not self.verify_ssl:
+            ssl_context = _ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = _ssl.CERT_NONE
+
         try:
-            import aiohttp
             self._session = aiohttp.ClientSession()
-            # Hermes WebSocket endpoint (Component A exposes this)
-            url = f"{self.hermes_url}/api/hermes/ws"
+            headers = {}
             if self.hermes_token:
-                url += f"?token={self.hermes_token}"
-            self._ws = await self._session.ws_connect(url)
+                headers["Authorization"] = f"Bearer {self.hermes_token}"
+            # Token in query param removed: use Authorization header instead
+            url = f"{self.hermes_url}/api/hermes/ws"
+            self._ws = await self._session.ws_connect(
+                url,
+                headers=headers,
+                ssl=ssl_context,
+                heartbeat=30,
+            )
             self._connected = True
             _LOGGER.info("Connected to Hermes WebSocket at %s", self.hermes_url)
+            # Flush any pending messages queued while disconnected
+            await _flush_pending(self._ws, self._pending)
         except Exception as exc:
             _LOGGER.warning("Failed to connect to Hermes WebSocket: %s", exc)
             self._connected = False
+
+
+async def _flush_pending(ws, pending: list) -> None:
+    """Send queued messages once reconnected."""
+    while pending:
+        try:
+            await ws.send_json(pending.pop(0))
+        except Exception:
+            pending.insert(0, pending.pop(0) if pending else {})
+            break
 
     async def async_shutdown(self) -> None:
         """Clean up connections."""
