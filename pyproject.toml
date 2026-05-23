@@ -18,6 +18,22 @@ dev = [
     "pytest-cov>=5",
 ]
 
+voice = [
+    "edge-tts>=6.1",
+    "sounddevice>=0.4",
+    "numpy>=1.26",
+]
+
+voice-stt = [
+    "faster-whisper>=1.0",
+]
+
+voice-wake = [
+    "pvporcupine>=3.0",
+    "pyaudio>=0.2",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]

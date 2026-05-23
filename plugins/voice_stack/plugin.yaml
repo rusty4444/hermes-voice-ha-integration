@@ -1,0 +1,63 @@
+name: voice_stack
+version: 0.2.0
+description: "Local voice pipeline: Wake Word → STT → Hermes LLM → TTS → HA media_player."
+author: "Sam Russell <sam.russell@samprim.net>"
+hooks:
+  - on_session_start
+
+config:
+  # Wake Word engine: porcupine, openwakeword, command
+  HERMES_WAKE_WORD_ENGINE:
+    type: str
+    default: porcupine
+    description: Wake word engine
+  HERMES_WAKE_WORD:
+    type: str
+    default: computer
+    description: Wake word keyword
+
+  # STT engine: faster-whisper, whisper-cpp, command
+  HERMES_STT_ENGINE:
+    type: str
+    default: faster-whisper
+    description: Speech-to-text engine
+  HERMES_STT_MODEL:
+    type: str
+    default: tiny
+    description: STT model size (tiny, base, small, medium, large-v3)
+  HERMES_STT_CONFIDENCE:
+    type: float
+    default: 0.70
+    description: Minimum confidence threshold for voice input acceptance
+
+  # TTS engine: edge, piper, command
+  HERMES_TTS_ENGINE:
+    type: str
+    default: edge
+    description: Text-to-speech engine
+  HERMES_TTS_VOICE:
+    type: str
+    default: en-US-AriaNeural
+    description: TTS voice name
+
+  # Output
+  HERMES_MEDIA_PLAYER:
+    type: str
+    default: ""
+    description: HA media_player entity for TTS output (leave empty for local speakers)
+
+  # Pipeline
+  HERMES_RECORD_DURATION:
+    type: float
+    default: 10.0
+    description: Maximum recording duration in seconds
+  HERMES_SILENCE_TIMEOUT:
+    type: float
+    default: 2.0
+    description: Seconds of silence before ending recording
+
+  # Audio cache
+  HERMES_VOICE_CACHE:
+    type: str
+    default: ~/.hermes/voice_cache
+    description: Directory for cached TTS audio files

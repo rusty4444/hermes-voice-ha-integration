@@ -1,6 +1,0 @@
-name: voice-stack
-version: 0.1.0
-description: "Local voice pipeline: Wake Word → STT → Hermes LLM → TTS → HA media_player."
-author: "Sam Russell <sam.russell@samprim.net>"
-hooks:
-  - on_session_start

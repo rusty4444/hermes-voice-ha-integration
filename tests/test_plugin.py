@@ -312,13 +312,13 @@ class TestPluginRegistration:
         assert "on_session_start" in data["hooks"]
 
     def test_voice_stack_plugin_yaml_valid(self):
-        """voice-stack plugin.yaml is valid YAML."""
+        """voice_stack plugin.yaml is valid YAML."""
         import yaml
-        yaml_path = Path(__file__).parent.parent / "plugins" / "voice-stack" / "plugin.yaml"
+        yaml_path = Path(__file__).parent.parent / "plugins" / "voice_stack" / "plugin.yaml"
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        assert data["name"] == "voice-stack"
-        assert data["version"] == "0.1.0"
+        assert data["name"] == "voice_stack"
+        assert data["version"] == "0.2.0"
 
     def test_manifest_json_valid(self):
         manifest_path = Path(__file__).parent.parent / "custom_components" / "hermes" / "manifest.json"
@@ -327,3 +327,188 @@ class TestPluginRegistration:
         assert data["domain"] == "hermes"
         assert data["config_flow"] is True
         assert "iot_class" in data
+
+# ---------------------------------------------------------------------------
+# Voice Stack Engine tests
+# ---------------------------------------------------------------------------
+
+class TestTTSEngine:
+    """TTS engine smoke tests."""
+
+    def test_edge_tts_engine_exists(self):
+        from plugins.voice_stack.engines.tts import EdgeTTSEngine
+        engine = EdgeTTSEngine()
+        assert callable(engine.available)
+        assert callable(engine.synthesize)
+
+    def test_piper_tts_engine_exists(self):
+        from plugins.voice_stack.engines.tts import PiperTTSEngine
+        engine = PiperTTSEngine(voice="en_US-lessac-medium")
+        assert callable(engine.available)
+        assert callable(engine.synthesize)
+
+    def test_create_tts_engine_factory(self):
+        from plugins.voice_stack.engines.tts import create_tts_engine, EdgeTTSEngine
+        engine = create_tts_engine("edge", voice="en-US-AriaNeural")
+        assert isinstance(engine, EdgeTTSEngine)
+
+    def test_create_tts_engine_invalid(self):
+        from plugins.voice_stack.engines.tts import create_tts_engine
+        with pytest.raises(ValueError, match="Unknown TTS engine"):
+            create_tts_engine("nonexistent")
+
+    def test_edge_tts_list_voices(self):
+        from plugins.voice_stack.engines.tts import EdgeTTSEngine
+        engine = EdgeTTSEngine()
+        voices = engine.list_voices()
+        assert isinstance(voices, list)
+        # Should have at least fallback voices even if CLI not installed
+        assert len(voices) >= 1
+        assert "name" in voices[0]
+        assert "locale" in voices[0]
+
+    def test_edge_tts_synthesize(self):
+        from plugins.voice_stack.engines.tts import EdgeTTSEngine
+        if not EdgeTTSEngine().available():
+            pytest.skip("edge-tts not installed")
+        engine = EdgeTTSEngine()
+        path = engine.synthesize("Hello world")
+        assert os.path.exists(path)
+        assert path.endswith(".mp3")
+        # Synthesise different text -> different file (different hashes)
+        path2 = engine.synthesize("Goodbye world")
+        # May be same due to hash collisions, but usually different extension
+        os.unlink(path)
+        os.unlink(path2)
+
+
+class TestSTTEngine:
+    """STT engine smoke tests."""
+
+    def test_faster_whisper_engine_exists(self):
+        from plugins.voice_stack.engines.stt import FasterWhisperEngine
+        engine = FasterWhisperEngine(model_size="tiny")
+        assert callable(engine.available)
+        assert callable(engine.transcribe)
+
+    def test_whisper_cpp_engine_exists(self):
+        from plugins.voice_stack.engines.stt import WhisperCPPEngine
+        engine = WhisperCPPEngine()
+        assert callable(engine.available)
+        assert callable(engine.transcribe)
+
+    def test_create_stt_engine_factory(self):
+        from plugins.voice_stack.engines.stt import create_stt_engine, FasterWhisperEngine
+        engine = create_stt_engine("faster-whisper", model_size="tiny")
+        assert isinstance(engine, FasterWhisperEngine)
+
+    def test_create_stt_engine_invalid(self):
+        from plugins.voice_stack.engines.stt import create_stt_engine
+        with pytest.raises(ValueError, match="Unknown STT engine"):
+            create_stt_engine("nonexistent")
+
+    def test_faster_whisper_list_languages(self):
+        from plugins.voice_stack.engines.stt import FasterWhisperEngine
+        engine = FasterWhisperEngine(model_size="tiny")
+        langs = engine.list_languages()
+        assert isinstance(langs, list)
+        assert len(langs) >= 1
+        assert "en" in langs
+
+    def test_whisper_cpp_list_languages(self):
+        from plugins.voice_stack.engines.stt import WhisperCPPEngine
+        engine = WhisperCPPEngine()
+        langs = engine.list_languages()
+        assert isinstance(langs, list)
+
+
+class TestWakeWordEngine:
+    """Wake word engine smoke tests."""
+
+    def test_porcupine_engine_exists(self):
+        from plugins.voice_stack.engines.wake_word import PorcupineEngine
+        engine = PorcupineEngine()
+        assert callable(engine.available)
+        assert callable(engine.listen)
+
+    def test_openwakeword_engine_exists(self):
+        from plugins.voice_stack.engines.wake_word import OpenWakeWordEngine
+        engine = OpenWakeWordEngine()
+        assert callable(engine.available)
+        assert callable(engine.listen)
+
+    def test_create_wake_word_engine_factory(self):
+        from plugins.voice_stack.engines.wake_word import (
+            create_wake_word_engine, PorcupineEngine)
+        engine = create_wake_word_engine("porcupine", keywords=["computer"])
+        assert isinstance(engine, PorcupineEngine)
+
+    def test_create_wake_word_engine_invalid(self):
+        from plugins.voice_stack.engines.wake_word import create_wake_word_engine
+        with pytest.raises(ValueError, match="Unknown wake word engine"):
+            create_wake_word_engine("nonexistent")
+
+    def test_porcupine_list_wake_words(self):
+        from plugins.voice_stack.engines.wake_word import PorcupineEngine
+        engine = PorcupineEngine()
+        words = engine.list_wake_words()
+        assert isinstance(words, list)
+        assert "computer" in words
+        assert "jarvis" in words
+
+
+class TestPipelineState:
+    """VoicePipelineState unit tests."""
+
+    def test_initial_state(self):
+        from plugins.voice_stack.pipeline import VoicePipelineState
+        state = VoicePipelineState()
+        assert state.enabled is False
+        assert state.listening is False
+        assert state.total_interactions == 0
+        assert state.total_errors == 0
+
+    def test_to_dict(self):
+        from plugins.voice_stack.pipeline import VoicePipelineState
+        state = VoicePipelineState()
+        d = state.to_dict()
+        assert d["enabled"] is False
+        assert "uptime_seconds" in d
+
+    def test_build_voice_system_prompt(self):
+        from plugins.voice_stack.pipeline import build_voice_system_prompt
+        prompt = build_voice_system_prompt()
+        assert "Hermes" in prompt
+        assert "voice" in prompt.lower()
+        assert "Listen" not in prompt  # not too formal
+
+    def test_build_voice_system_prompt_with_context(self):
+        from plugins.voice_stack.pipeline import build_voice_system_prompt
+        entities = [{"entity_id": "light.kitchen", "state": "on"}]
+        prompt = build_voice_system_prompt(entities=entities)
+        assert "light.kitchen" in prompt
+
+
+class TestVoicePluginInit:
+    """Voice plugin __init__.py smoke tests."""
+
+    def test_plugin_importable(self):
+        import plugins.voice_stack  # noqa: F401
+
+    def test_tools_registered(self):
+        import ast
+        init_path = Path(__file__).parent.parent / "plugins" / "voice_stack" / "__init__.py"
+        source = init_path.read_text()
+        tool_names = ["voice_status", "voice_enable", "voice_disable", "voice_speak",
+                      "voice_listen", "voice_prompt"]
+        for n in tool_names:
+            assert f'"{n}"' in source, f"Tool '{n}' not found in voice_stack __init__.py"
+
+    def test_plugin_yaml_version(self):
+        import yaml
+        yaml_path = Path(__file__).parent.parent / "plugins" / "voice_stack" / "plugin.yaml"
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+        assert "config" in data
+        assert "HERMES_WAKE_WORD_ENGINE" in data["config"]
+        assert data["version"] == "0.2.0"

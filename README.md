@@ -13,7 +13,7 @@ local voice stack — wake word → STT → LLM → TTS → `media_player`.
 |---|-----------|-----------------|
 | A | **Home Assistant custom integration** | `custom_components/hermes/` |
 | B | **Hermes Home Assistant plugin** | `plugins/home_assistant/` |
-| C | **Hermes Voice Stack plugin** | `plugins/voice-stack/` |
+| C | **Hermes Voice Stack plugin** | `plugins/voice_stack/` |
 
 ---
 
@@ -44,28 +44,42 @@ state. Registers core tools at agent start.
 
 ```
 plugins/home_assistant/
-├── __init__.py       — plugin entry: connect, register 4 P0 tools
-├── ha_assistant.py   — HAWebSocketBridge (entity cache, call_service, search)
+├── __init__.py       — plugin entry: connect, register 7 tools
+├── ha_assistant.py   — HAWebSocketBridge (entity cache, call_service, search, list_services)
 ├── plugin.yaml       — config: ha_url, ha_token, auto_discover_services
 ├── compound.py       — P0 compound tools (control_light_and_set_scene, turn_off_all_except)
-├── security.py       — P0 allow-lister, Admin protection, audit log
+├── security.py       — P0 allow-list, block-list, audit log, 3-layer security
 └── README.md         — user-facing docs
 ```
 
-### Component C — Voice Stack Plugin (`plugins/voice-stack/`)
+### Component C — Voice Stack Plugin (`plugins/voice_stack/`)
 
 Audio pipeline loop: Wake Word → STT → Hermes → TTS → `media_player`.
 
 ```
-plugins/voice-stack/
-├── __init__.py       — VoiceOrchestrator, engine wiring
-├── wake_word.py      — Porcupine / OpenWakeWord / Sherpa-Onix
-├── stt.py            — Whisper.cpp GGUF (base.en) / Vosk / Coqui
-├── tts.py            — PiperTTS / Edge-TTS / ElevenLabs
-├── audio.py          — mic capture, playback via HA media_player
-├── plugin.yaml       — config: engines, confidence thresholds, device IDs
+plugins/voice_stack/
+├── __init__.py       — VoicePlugIn, 6 tools registered, engine wiring
+├── pipeline.py       — VoicePipeline orchestrator, audio record/play, voice system prompt
+├── engines/
+│   ├── __init__.py   — engine sub-package
+│   ├── tts.py        — EdgeTTS / PiperTTS / Command TTS
+│   ├── stt.py        — faster-whisper / whisper-cpp / Command STT
+│   └── wake_word.py  — Porcupine / OpenWakeWord / Command WW
+├── audio.py          — thin shim → pipeline.py (deprecated)
+├── plugin.yaml       — config: engines, confidence thresholds, media_player entity
 └── README.md         — voice stack docs
 ```
+
+**Registered tools (P1):**
+
+| Tool | Description |
+|------|-------------|
+| `voice_status` | Show engine availability + pipeline state |
+| `voice_enable` | Enable continuous voice mode (wake word + STT + TTS) |
+| `voice_disable` | Disable continuous voice mode |
+| `voice_speak` | TTS-only: speak text through configured engine + media_player |
+| `voice_listen` | One-shot: record audio and return transcription |
+| `voice_prompt` | Return the voice-optimised system prompt with HA context |
 
 ---
 
@@ -74,7 +88,6 @@ plugins/voice-stack/
 ### 1. Hermes Agent (already installed)
 
 ```bash
-# Clone Hermes
 git clone https://github.com/NousResearch/hermes-agent.git
 cd hermes-agent && source .venv/bin/activate
 ```
@@ -120,15 +133,37 @@ Home Assistant is currently unavailable.
 
 ---
 
+## P1 Voice Layer Exit Criteria
+
+| Signal | Target | How to verify |
+|--------|--------|---------------|
+| "Hey Hermes, turn off the living room light" | light off, TTS says "Done" | voice_listen → ha_call_service → voice_speak |
+| "What's the outside temperature?" | reads correct sensor value | voice_listen → ha_search_entities → ha_get_state → voice_speak |
+| Wake word false-positive rate | ≤1/hour in quiet room | voice_status → observe wake_word.listen() |
+| Engine swap | all config, no code changes | set HERMES_TTS_ENGINE=piper, restart, test again |
+
+---
+
 ## Roadmap
 
-| Phase | Name | Target |
+| Phase | Name | Status |
 |-------|------|--------|
-| **P0** | Foundation | Plugin sent-up, 4-core tools, compound actions, security layer |
-| **P1** | Voice Layer | Wake-word → STT → LLM → TTS → media_player |
-| **P2** | HA Completeness | Bulk control, service auto-discovery, state pushed to context |
-| **P3** | Advanced Features | Observability bridge, shadow-assist, user profiles |
+| **P0** | Foundation | ✅ 23/23 tests, code reviewed by aeon-ultimate-xs, 5 criticals fixed |
+| **P1** | Voice Layer | ✅ Engines built (TTS/STT/Wake Word), pipeline orchestrator, 47/47 tests |
+| **P2** | HA Completeness | Bulk control, service auto-discovery, disambiguation, state events |
+| **P3** | Advanced Features | Observability, shadow-assist, user profiles |
 | **P4** | Packaging | HACS release, HA Add-on Docker image |
+
+---
+
+## Running Tests
+
+```bash
+cd ~/dev/hermes/hermes-voice-ha-integration
+PYTHONPATH=. python -m pytest tests/ -v
+```
+
+All tests are fully mocked — no live HA instance required.
 
 ---
 
