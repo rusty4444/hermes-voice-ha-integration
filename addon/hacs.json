@@ -1,0 +1,9 @@
+{
+    "name": "Hermes Voice Assistant",
+    "content_in_root": false,
+    "zip_release": true,
+    "filename": "hermes_voice.zip",
+    "homeassistant": "2024.11.0",
+    "render_readme": true,
+    "persistent_directory": "data"
+}

@@ -558,6 +558,56 @@ class TestObservability:
         assert data["domain"] == "hermes"
         assert data["config_flow"] is True
         assert "iot_class" in data
+        assert data["version"] == "0.3.0"
+
+
+# ---------------------------------------------------------------------------
+# P4 Tests: Add-on structure validation
+# ---------------------------------------------------------------------------
+
+class TestAddonStructure:
+    """HA add-on packaging validation."""
+
+    def test_addon_config_yaml_valid(self):
+        import yaml
+        config_path = Path(__file__).parent.parent / "addon" / "config.yaml"
+        assert config_path.exists(), "addon/config.yaml missing"
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+        assert data["name"] == "Hermes Voice Assistant"
+        assert data["version"] == "0.3.0"
+        assert data["slug"] == "hermes_voice"
+        assert "arch" in data
+        assert "amd64" in data["arch"] or "aarch64" in data["arch"]
+
+    def test_addon_build_yaml_valid(self):
+        import yaml
+        build_path = Path(__file__).parent.parent / "addon" / "build.yaml"
+        assert build_path.exists(), "addon/build.yaml missing"
+        with open(build_path) as f:
+            data = yaml.safe_load(f)
+        assert "build_from" in data
+
+    def test_addon_dockerfile_exists(self):
+        dockerfile = Path(__file__).parent.parent / "addon" / "Dockerfile"
+        assert dockerfile.exists(), "addon/Dockerfile missing"
+        content = dockerfile.read_text()
+        assert "FROM" in content
+        assert "ENTRYPOINT" in content or "CMD" in content
+
+    def test_addon_run_sh_exists(self):
+        run_sh = Path(__file__).parent.parent / "addon" / "run.sh"
+        assert run_sh.exists(), "addon/run.sh missing"
+        content = run_sh.read_text()
+        assert "hermes" in content.lower()
+
+    def test_addon_hacs_json_valid(self):
+        hacs_path = Path(__file__).parent.parent / "addon" / "hacs.json"
+        assert hacs_path.exists(), "addon/hacs.json missing"
+        with open(hacs_path) as f:
+            data = json.load(f)
+        assert "name" in data
+        assert "homeassistant" in data
 
 # ---------------------------------------------------------------------------
 # Voice Stack Engine tests
