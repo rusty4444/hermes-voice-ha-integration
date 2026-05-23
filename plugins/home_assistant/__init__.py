@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import time as _time
 from typing import Any, Dict, Optional, Tuple
 
 from plugins.home_assistant.ha_assistant import (
@@ -334,6 +335,26 @@ def _on_session_start(**kwargs) -> None:
                 logger.info("HA WS event listener started")
             else:
                 logger.info("HA WS event listener skipped (no aiohttp available)")
+
+            # --- P3: Scene/Script auto-discovery ---
+            from plugins.home_assistant.discovery import discover_scenes_scripts
+            discovered = discover_scenes_scripts()
+            logger.info(
+                "Auto-discovered %d scenes + %d scripts from HA",
+                discovered.get("total_scenes", 0),
+                discovered.get("total_scripts", 0),
+            )
+
+            # --- P3: Set initial status sensor values ---
+            try:
+                from plugins.home_assistant.status_sensors import get_status_sensors
+                sensors = get_status_sensors()
+                sensors.start_time = _time.time()  # use time.time for absolute reference
+                sensors.gateway_connected = True
+                sensors.ws_connected = thread is not None
+                logger.info("HA status sensors initialised")
+            except Exception:
+                pass
         else:
             logger.info("HA not available — skipping cache pre-warm")
     except Exception as exc:

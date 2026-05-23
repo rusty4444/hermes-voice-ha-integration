@@ -443,6 +443,114 @@ class TestEventWatcher:
         assert ctx["summary"] == "recent_state_changes"
         assert len(ctx["events"]) == 2
 
+
+# ---------------------------------------------------------------------------
+# P3 Tests: Status sensors, Scene/Script discovery, Observability
+# ---------------------------------------------------------------------------
+
+class TestStatusSensors:
+    """Hermes → HA status sensor tests."""
+
+    def test_sensors_initialised(self):
+        from plugins.home_assistant.status_sensors import HermesStatusSensors
+        sensors = HermesStatusSensors()
+        snap = sensors.snapshot()
+        assert len(snap) == 6
+        names = [s["entity_id"] for s in snap]
+        assert "binary_sensor.hermes_gateway_status" in names
+        assert "sensor.hermes_uptime_hours" in names
+        assert "sensor.hermes_total_interactions" in names
+        assert "sensor.hermes_total_errors" in names
+        assert "binary_sensor.ha_ws_connection" in names
+        assert "binary_sensor.hermes_voice_ready" in names
+
+    def test_sensor_state_values(self):
+        from plugins.home_assistant.status_sensors import HermesStatusSensors
+        sensors = HermesStatusSensors()
+        sensors.gateway_connected = True
+        sensors.ws_connected = True
+        sensors.total_interactions = 42
+        sensors.total_errors = 3
+        snap = sensors.snapshot()
+        # Find each sensor and check state
+        gateway = [s for s in snap if s["entity_id"] == "binary_sensor.hermes_gateway_status"][0]
+        assert gateway["state"] == "on"
+
+        interactions = [s for s in snap if s["entity_id"] == "sensor.hermes_total_interactions"][0]
+        assert interactions["state"] == 42
+
+    def test_singleton(self):
+        from plugins.home_assistant.status_sensors import get_status_sensors
+        s1 = get_status_sensors()
+        s2 = get_status_sensors()
+        assert s1 is s2
+
+
+class TestDiscovery:
+    """Scene/Script auto-discovery tests."""
+
+    def test_build_scene_tool_schemas(self):
+        from plugins.home_assistant.discovery import build_scene_tool_schemas
+        scenes = [
+            {"entity_id": "scene.movie_night", "friendly_name": "Movie Night"},
+            {"entity_id": "scene.morning", "friendly_name": "Morning Routine"},
+        ]
+        schemas = build_scene_tool_schemas(scenes)
+        assert len(schemas) == 2
+        assert schemas[0]["name"] == "ha_scene_movie_night"
+        assert schemas[1]["name"] == "ha_scene_morning"
+        assert "_scene_entity_id" in schemas[0]
+
+    def test_build_script_tool_schemas(self):
+        from plugins.home_assistant.discovery import build_script_tool_schemas
+        scripts = [
+            {"entity_id": "script.backup", "friendly_name": "Backup Script"},
+        ]
+        schemas = build_script_tool_schemas(scripts)
+        assert len(schemas) == 1
+        assert schemas[0]["name"] == "ha_script_backup"
+        assert "_script_entity_id" in schemas[0]
+
+    def test_make_scene_handler(self):
+        from plugins.home_assistant.discovery import make_scene_handler
+        handler = make_scene_handler("scene.movie_night")
+        assert callable(handler)
+
+    def test_make_script_handler(self):
+        from plugins.home_assistant.discovery import make_script_handler
+        handler = make_script_handler("script.backup")
+        assert callable(handler)
+
+
+class TestObservability:
+    """Voice pipeline observability metrics."""
+
+    def test_record_and_stats(self):
+        from plugins.home_assistant.discovery import Observability, VoiceLatencyMetric
+        obs = Observability(max_samples=10)
+        obs.record(VoiceLatencyMetric(
+            stt_latency_ms=500, llm_latency_ms=1800, tts_latency_ms=300, total_latency_ms=2600,
+        ))
+        obs.record(VoiceLatencyMetric(
+            stt_latency_ms=400, llm_latency_ms=1500, tts_latency_ms=250, total_latency_ms=2150,
+        ))
+        stats = obs.stats()
+        assert stats["samples"] == 2
+        assert stats["avg_total_ms"] == 2375.0  # (2600+2150)/2
+
+    def test_empty_stats(self):
+        from plugins.home_assistant.discovery import Observability
+        obs = Observability()
+        stats = obs.stats()
+        assert stats["samples"] == 0
+        assert stats["avg_total_ms"] == 0
+
+    def test_singleton(self):
+        from plugins.home_assistant.discovery import get_observability
+        o1 = get_observability()
+        o2 = get_observability()
+        assert o1 is o2
+
     def test_manifest_json_valid(self):
         manifest_path = Path(__file__).parent.parent / "custom_components" / "hermes" / "manifest.json"
         with open(manifest_path) as f:
