@@ -28,8 +28,10 @@ from plugins.home_assistant.ha_assistant import (
     search_entities,
 )
 from plugins.home_assistant.compound import (
+    BULK_CONTROL_SCHEMA,
     CONTROL_LIGHT_AND_SET_SCENE_SCHEMA,
     TURN_OFF_ALL_EXCEPT_SCHEMA,
+    _handle_bulk_control,
     _handle_control_light_and_set_scene,
     _handle_turn_off_all_except,
 )
@@ -65,6 +67,18 @@ def _handle_search_entities(args: dict, **kw) -> str:
     area = args.get("area")
     try:
         result = search_entities(query=query, domain=domain, area=area)
+        entities = result.get("entities", [])
+        # --- Disambiguation: when 3+ entities match, surface the ambiguity ---
+        if len(entities) >= 3 and query:
+            resolved = {e["entity_id"]: e["friendly_name"] for e in entities}
+            result["disambiguation"] = {
+                "needed": True,
+                "entities": resolved,
+                "instruction": (
+                    f"Multiple entities matched '{query}'. "
+                    f"Ask the user which room they mean before proceeding."
+                ),
+            }
         return json.dumps({"result": result})
     except Exception as exc:
         logger.error("ha_search_entities error: %s", exc)
@@ -300,6 +314,7 @@ _TOOLS = (
     ("ha_list_services",         HA_LIST_SERVICES_SCHEMA,           _handle_list_services,         "📋"),
     ("control_light_and_set_scene", CONTROL_LIGHT_AND_SET_SCENE_SCHEMA, _handle_control_light_and_set_scene, "🎬"),
     ("turn_off_all_except",      TURN_OFF_ALL_EXCEPT_SCHEMA,        _handle_turn_off_all_except,   "🌙"),
+    ("ha_bulk_control",          BULK_CONTROL_SCHEMA,               _handle_bulk_control,          "⚡"),
 )
 
 
@@ -309,10 +324,28 @@ def _on_session_start(**kwargs) -> None:
         if is_available():
             entities = refresh_entity_cache(force=True)
             logger.info("HA entity cache pre-warmed: %d entities", len(entities))
+
+            # Start the HA WebSocket event listener (P2)
+            url, token = _get_ha_creds()
+            from plugins.home_assistant.event_watcher import start_ws_listener, get_event_source
+            ws_url = f"{url.replace('http', 'ws')}/api/websocket"
+            thread = start_ws_listener(ws_url, token)
+            if thread:
+                logger.info("HA WS event listener started")
+            else:
+                logger.info("HA WS event listener skipped (no aiohttp available)")
         else:
             logger.info("HA not available — skipping cache pre-warm")
     except Exception as exc:
         logger.warning("HA cache pre-warm failed (non-fatal): %s", exc)
+
+
+def _get_ha_creds():
+    """Return (url, token) from environment."""
+    import os
+    url = os.getenv("HASS_URL", "http://homeassistant.local:8123").rstrip("/")
+    token = os.getenv("HASS_TOKEN", "")
+    return url, token
 
 
 def register(ctx) -> None:

@@ -299,7 +299,7 @@ class TestPluginRegistration:
         for node in ast.walk(tree):
             if isinstance(node, ast.Tuple):
                 tools_count = max(tools_count, len(node.elts))
-        assert tools_count >= 7, f"Expected >= 7 tools in _TOOLS tuple, found {tools_count}"
+        assert tools_count >= 8, f"Expected >= 8 tools in _TOOLS tuple, found {tools_count}"
 
     def test_plugin_yaml_valid(self):
         """plugin.yaml is valid YAML."""
@@ -319,6 +319,129 @@ class TestPluginRegistration:
             data = yaml.safe_load(f)
         assert data["name"] == "voice_stack"
         assert data["version"] == "0.2.0"
+
+
+# ---------------------------------------------------------------------------
+# P2 Tests: Bulk control, Disambiguation, Event Watcher
+# ---------------------------------------------------------------------------
+
+class TestBulkControl:
+    """ha_bulk_control compound tool tests."""
+
+    def test_bulk_control_no_operations(self):
+        from plugins.home_assistant.compound import _handle_bulk_control
+        result = _handle_bulk_control({"operations": []})
+        data = json.loads(result)
+        assert "error" in data
+
+    def test_bulk_control_single(self, monkeypatch):
+        async def _mock_call(*a, **kw):
+            return {"ok": True}
+        monkeypatch.setattr("plugins.home_assistant.ha_assistant._async_call_service", _mock_call)
+
+        from plugins.home_assistant.compound import _handle_bulk_control
+        result = _handle_bulk_control({
+            "operations": [
+                {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"},
+            ],
+        })
+        data = json.loads(result)
+        assert data["results"] is not None
+        assert data["summary"]["succeeded"] == 1
+
+    def test_bulk_control_multiple(self, monkeypatch):
+        async def _mock_call(*a, **kw):
+            return {"ok": True}
+        monkeypatch.setattr("plugins.home_assistant.ha_assistant._async_call_service", _mock_call)
+
+        from plugins.home_assistant.compound import _handle_bulk_control
+        result = _handle_bulk_control({
+            "operations": [
+                {"domain": "light", "service": "turn_off", "entity_id": "light.a"},
+                {"domain": "light", "service": "turn_off", "entity_id": "light.b"},
+                {"domain": "light", "service": "turn_off", "entity_id": "light.c"},
+            ],
+        })
+        data = json.loads(result)
+        assert data["summary"]["total"] == 3
+        assert data["summary"]["succeeded"] == 3
+
+
+class TestDisambiguation:
+    """Entity disambiguation when 3+ entities match."""
+
+    def test_handler_adds_disambiguation(self):
+        """Verify _handle_search_entities adds disambiguation for 3+ matches."""
+        import importlib
+        mod = importlib.import_module("plugins.home_assistant.ha_assistant")
+        mod._entity_cache.set([
+            {"entity_id": "light.kitchen", "state": "on", "attributes": {"friendly_name": "Kitchen Light"}},
+            {"entity_id": "light.bedroom", "state": "off", "attributes": {"friendly_name": "Bedroom Light"}},
+            {"entity_id": "light.bathroom", "state": "off", "attributes": {"friendly_name": "Bathroom Light"}},
+        ])
+
+        from plugins.home_assistant.__init__ import _handle_search_entities
+        result = json.loads(_handle_search_entities({"query": "light"}))
+        r = result["result"]
+        assert r.get("disambiguation", {}).get("needed") is True
+        assert len(r["disambiguation"]["entities"]) == 3
+
+
+class TestEventWatcher:
+    """EventSource and event watcher tests."""
+
+    def test_event_source_singleton(self):
+        from plugins.home_assistant.event_watcher import get_event_source
+        s1 = get_event_source()
+        s2 = get_event_source()
+        assert s1 is s2
+
+    def test_emit_and_get_events(self):
+        from plugins.home_assistant.event_watcher import EventSource, StateChangedEvent
+        source = EventSource(max_events=10)
+        source.emit(StateChangedEvent("light.kitchen", "off", "on"))
+        source.emit(StateChangedEvent("sensor.temp", "22", "24"))
+
+        events = source.get_events()
+        assert len(events) == 2
+        assert events[0]["entity_id"] == "light.kitchen"
+        assert events[1]["entity_id"] == "sensor.temp"
+
+    def test_get_events_filtered(self):
+        from plugins.home_assistant.event_watcher import EventSource, StateChangedEvent
+        source = EventSource(max_events=10)
+        source.emit(StateChangedEvent("light.kitchen", "off", "on"))
+        source.emit(StateChangedEvent("light.bedroom", "on", "off"))
+
+        events = source.get_events(entity_id="light.kitchen")
+        assert len(events) == 1
+        assert events[0]["entity_id"] == "light.kitchen"
+
+    def test_subscriber_called(self):
+        from plugins.home_assistant.event_watcher import EventSource, StateChangedEvent
+        source = EventSource()
+        received: list = []
+
+        def cb(ev):
+            received.append(ev.entity_id)
+
+        source.subscribe(cb)
+        source.emit(StateChangedEvent("light.kitchen", "off", "on"))
+        assert received == ["light.kitchen"]
+
+    def test_build_event_context(self):
+        from plugins.home_assistant.event_watcher import (
+            get_event_source, StateChangedEvent, build_event_context,
+        )
+        source = get_event_source()
+        source.clear()
+        source.emit(StateChangedEvent("light.kitchen", "off", "on"))
+        source.emit(StateChangedEvent("sensor.temp", "22", "23"))
+
+        ctx = build_event_context(max_events=5, max_age_seconds=600)
+        assert "events" in ctx
+        assert ctx["summary"] == "recent_state_changes"
+        assert len(ctx["events"]) == 2
 
     def test_manifest_json_valid(self):
         manifest_path = Path(__file__).parent.parent / "custom_components" / "hermes" / "manifest.json"
@@ -512,3 +635,5 @@ class TestVoicePluginInit:
         assert "config" in data
         assert "HERMES_WAKE_WORD_ENGINE" in data["config"]
         assert data["version"] == "0.2.0"
+
+

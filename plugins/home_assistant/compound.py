@@ -202,3 +202,104 @@ def _handle_turn_off_all_except(args: dict, **kw) -> str:
             "preserved": list(preserve_set),
         },
     })
+
+
+# ---------------------------------------------------------------------------
+# ha_bulk_control — parallel multi-entity control
+# ---------------------------------------------------------------------------
+
+BULK_CONTROL_SCHEMA = {
+    "name": "ha_bulk_control",
+    "description": (
+        "Execute multiple Home Assistant service calls in parallel. "
+        "Use this to turn on/off multiple lights, set all thermostats to "
+        "the same temperature, or any batch operation across different entities. "
+        "Each operation runs concurrently on a thread pool.\n\n"
+        "Example: [{'domain': 'light', 'service': 'turn_off', 'entity_id': 'light.kitchen'}, "
+        "{'domain': 'light', 'service': 'turn_off', 'entity_id': 'light.bedroom'}]"
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "operations": {
+                "type": "array",
+                "description": "List of service calls to execute in parallel.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "domain": {"type": "string", "description": "Service domain (e.g. 'light')."},
+                        "service": {"type": "string", "description": "Service name (e.g. 'turn_off')."},
+                        "entity_id": {"type": "string", "description": "Target entity ID."},
+                        "data": {
+                            "type": "object",
+                            "description": "Additional service data (e.g. {'brightness': 128}).",
+                        },
+                    },
+                    "required": ["domain", "service"],
+                },
+                "minItems": 1,
+                "maxItems": 50,
+            },
+        },
+        "required": ["operations"],
+    },
+}
+
+
+def _handle_bulk_control(args: dict, **kw) -> str:
+    """Execute multiple HA service calls in parallel."""
+    import concurrent.futures
+
+    operations: list = args.get("operations", [])
+    if not operations:
+        return json.dumps({"error": "No operations provided"})
+
+    # Group by domain+service for efficiency, but call each individually
+    # for independent error reporting
+    results: list = []
+    futures: dict = {}
+
+    # We reuse the existing thread pool from ha_assistant.py
+    from plugins.home_assistant.ha_assistant import call_service
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(operations), 10)) as executor:
+        for i, op in enumerate(operations):
+            domain = op.get("domain", "")
+            service = op.get("service", "")
+            entity_id = op.get("entity_id")
+            data = op.get("data")
+            future = executor.submit(call_service, domain, service, entity_id, data)
+            futures[future] = i
+
+        for future in concurrent.futures.as_completed(futures, timeout=30):
+            i = futures[future]
+            try:
+                result = future.result()
+                results.append({
+                    "op_index": i,
+                    "domain": operations[i]["domain"],
+                    "service": operations[i]["service"],
+                    "entity_id": operations[i].get("entity_id"),
+                    "ok": "error" not in result,
+                    "result": result,
+                })
+            except Exception as exc:
+                results.append({
+                    "op_index": i,
+                    "domain": operations[i]["domain"],
+                    "service": operations[i]["service"],
+                    "entity_id": operations[i].get("entity_id"),
+                    "ok": False,
+                    "error": str(exc),
+                })
+
+    ok_count = sum(1 for r in results if r.get("ok"))
+    return json.dumps({
+        "results": sorted(results, key=lambda r: r["op_index"]),
+        "summary": {
+            "total": len(operations),
+            "succeeded": ok_count,
+            "failed": len(operations) - ok_count,
+        },
+    })
+
