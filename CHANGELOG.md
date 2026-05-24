@@ -4,6 +4,14 @@ All notable changes to `hermes-voice-ha-integration`.
 
 ## [0.0.2] — 2026-05-24
 
+### Added
+- Full HA options UI: two-page config flow for the Hermes integration.
+  - Page 1 — entity allow-list editor and SSL verification toggle.
+  - Page 2 — voice pipeline: TTS engine + voice, STT engine + model size,
+    wake-word engine + keyword(s), media player entity for TTS playback.
+- Four new status sensors: `sensor.hermes_tts_voice`, `sensor.hermes_stt_engine`,
+  `sensor.hermes_wake_word`, `sensor.hermes_media_player`.
+
 ### Fixed
 - Fixed type errors in `ws_receiver.py` (replaced bare `Dict` with `dict`, `Mapping` from `typing`).
 - Wired `handle_voice_action` dispatch to `_handle_voice_enable/disable/status` from `plugins.voice_stack`.

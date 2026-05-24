@@ -12,7 +12,7 @@ This repository is a bundle of three pieces:
 | Hermes Home Assistant plugin | `plugins/home_assistant/` | Gives Hermes tools for entity search, state lookup, service calls, bulk control, scene/script discovery, and HA context. |
 | Hermes voice-stack plugin | `plugins/voice_stack/` | Adds wake-word, speech-to-text, text-to-speech, and voice pipeline helpers. |
 
-> **Release:** `v0.0.2` — adds the HA-facing Hermes WebSocket receiver used by the dashboard action bar and custom integration.
+> **Release:** `v0.0.2` — adds the HA-facing Hermes WebSocket receiver and the full HA config/options UI (voice pipeline, entity allow-list editor, SSL toggle).
 
 ---
 
@@ -266,11 +266,52 @@ The integration adds:
 
 - `hermes.hermes_command` service for HA-native service dispatch.
 - `hermes.voice_settings` service for voice/dashboard helpers.
-- Hermes status entities such as gateway status, uptime, interaction count, error count, HA WebSocket status, and voice readiness.
+- Hermes status entities:
+  - `sensor.hermes_gateway_status` — Hermes gateway reachable or offline
+  - `sensor.hermes_uptime_hours` — how long Hermes has been running
+  - `sensor.hermes_total_interactions` — number of voice interactions
+  - `sensor.hermes_total_errors` — number of voice errors
+  - `sensor.ha_ws_connection` — HA WebSocket connection state
+  - `sensor.hermes_voice_ready` — voice pipeline ready flag
+  - `sensor.hermes_tts_voice` — configured default TTS voice
+  - `sensor.hermes_stt_engine` — configured STT engine
+  - `sensor.hermes_wake_word` — configured wake-word keyword(s)
+  - `sensor.hermes_media_player` — configured media player for TTS
 
 ---
 
-## Step 7 — Add the Lovelace action bar
+## Step 7 — Configure the voice pipeline via the HA options UI
+
+After adding the integration, open **Settings → Devices &amp; services → Hermes Voice Assistant → Options**.
+
+The options flow has two pages.
+
+### Page 1 — Allow-listed entities &amp; SSL
+
+| Field | What to enter |
+|---|---|
+| **Entity IDs to monitor** | One entity per line or comma-separated (empty = all entities) |
+| **Verify SSL certificates** | Toggle off if your Hermes endpoint uses a self-signed cert |
+
+### Page 2 — Voice pipeline
+
+![Hermes voice pipeline options](docs/config-flow-ui-mockup.html)
+
+| Field | What to enter |
+|---|---|
+| **TTS engine** | `edge` (default, network), `piper` (local), `elevenlabs`, or `openai` |
+| **Default TTS voice / voice-ID** | Voice name or ID for the chosen TTS engine (e.g. `en-US-AriaNeural` for Edge TTS) |
+| **STT engine** | `faster-whisper` (default, local) or `whisper-cpp` |
+| **STT model size** | Model size for the chosen STT engine: `tiny`, `base`, `small`, `medium`, `large` |
+| **Wake-word engine** | `porcupine` (default), `openwakeword`, or `command` |
+| **Wake-word keyword(s)** | One keyword per line or comma-separated (e.g. `hey jarvis`, `computer`) |
+| **Media player entity ID** | HA `media_player.*` entity used for TTS playback (e.g. `media_player.living_room_speaker`) |
+
+Values are persisted in the config entry options. After saving, Hermes reads them from `entry.options` on every restart. Screenshots of the live UI are welcome via PR.
+
+---
+
+## Step 8 — Add the Lovelace action bar
 
 Add this card to a dashboard:
 
@@ -284,7 +325,7 @@ If the browser shows “Custom element doesn’t exist”, hard refresh the dash
 
 ---
 
-## Step 8 — Configure safety controls
+## Step 9 — Configure safety controls
 
 The plugin blocks dangerous service domains by default, including:
 
@@ -324,7 +365,7 @@ Audit logs are written as JSON lines to:
 
 ---
 
-## Step 9 — Optional voice setup
+## Step 10 — Optional: fine-tune voice engines outside HA
 
 Install optional voice dependencies in the Python environment that runs Hermes.
 
@@ -595,7 +636,7 @@ Check:
 - The add-on scaffold may need environment-specific build adjustments before it is suitable as the primary install path for every HA setup.
 - The Lovelace action bar is intentionally minimal.
 - The HA custom integration and Hermes plugins are released together in one repo for now; future releases may split packaging by install target.
-- The HA WebSocket receiver returns ack-only for `state_changed`; context ingestion (recent state history) is not implemented yet.
+
 
 ---
 

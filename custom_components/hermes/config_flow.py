@@ -8,16 +8,36 @@ from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.const import CONF_URL, CONF_TOKEN
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL
+from .const import (
+    DOMAIN,
+    CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER,
+    CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL,
+    CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE,
+    CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL,
+    CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE,
+    CONF_WAKE_WORD, DEFAULT_WAKE_WORD,
+    CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER,
+    TTS_ENGINE_OPTIONS, STT_ENGINE_OPTIONS, WAKE_WORD_ENGINE_OPTIONS,
+)
+
+
+def _parse_list(value) -> list[str]:
+    """Accept list, tuple, or newline/comma-separated string."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return [p.strip() for p in str(value).replace("\n", ",").split(",") if p.strip()]
 
 
 def _parse_entity_filter(value) -> list[str]:
-    """Accept list input or comma/newline-separated text from the options form."""
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(v).strip() for v in value if str(v).strip()]
-    return [part.strip() for part in str(value).replace("\n", ",").split(",") if part.strip()]
+    """Accept list input or comma/newline-separated text."""
+    return _parse_list(value)
+
+
+def _parse_wake_word(value) -> list[str]:
+    """Wake words can be a single string or comma-separated list."""
+    return _parse_list(value)
 
 
 class HermesConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -46,10 +66,7 @@ class HermesConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=f"Hermes ({url})",
                     data={CONF_URL: url, CONF_TOKEN: token},
-                    options={
-                        CONF_ENTITY_FILTER: DEFAULT_ENTITY_FILTER,
-                        CONF_VERIFY_SSL: DEFAULT_VERIFY_SSL,
-                    },
+                    options=_default_options(),
                 )
 
         return self.async_show_form(
@@ -66,25 +83,47 @@ class HermesConfigFlow(ConfigFlow, domain=DOMAIN):
         return HermesOptionsFlow(config_entry)
 
 
+def _default_options() -> dict:
+    """Default option set for a newly created config entry."""
+    return {
+        CONF_ENTITY_FILTER: DEFAULT_ENTITY_FILTER,
+        CONF_VERIFY_SSL: DEFAULT_VERIFY_SSL,
+        CONF_TTS_ENGINE: DEFAULT_TTS_ENGINE,
+        CONF_TTS_VOICE: DEFAULT_TTS_VOICE,
+        CONF_STT_ENGINE: DEFAULT_STT_ENGINE,
+        CONF_STT_MODEL: DEFAULT_STT_MODEL,
+        CONF_WAKE_WORD_ENGINE: DEFAULT_WAKE_WORD_ENGINE,
+        CONF_WAKE_WORD: DEFAULT_WAKE_WORD,
+        CONF_MEDIA_PLAYER: DEFAULT_MEDIA_PLAYER,
+    }
+
+
 class HermesOptionsFlow(OptionsFlow):
-    """Options flow for Hermes."""
+    """Multi-step options flow for Hermes."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self.config_entry = config_entry
+        self._pending: dict | None = None
 
     async def async_step_init(self, user_input: dict | None = None) -> FlowResult:
-        """Manage entity filter + SSL verification."""
+        """Step 1 — entity allow-list and SSL verification."""
         current = dict(self.config_entry.options or {})
-        if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={
-                    CONF_ENTITY_FILTER: _parse_entity_filter(user_input.get(CONF_ENTITY_FILTER)),
-                    CONF_VERIFY_SSL: bool(user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)),
-                },
-            )
 
-        current_filter = ", ".join(current.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER))
+        if user_input is not None:
+            self._pending = {
+                CONF_ENTITY_FILTER: _parse_entity_filter(
+                    user_input.get(CONF_ENTITY_FILTER)
+                ),
+                CONF_VERIFY_SSL: bool(
+                    user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+                ),
+            }
+            # Always drop through to voice step after init
+            return await self.async_step_voice()
+
+        current_filter = ", ".join(
+            current.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER)
+        )
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
@@ -99,3 +138,95 @@ class HermesOptionsFlow(OptionsFlow):
                 ): bool,
             }),
         )
+
+    async def async_step_voice(self, user_input: dict | None = None) -> FlowResult:
+        """Step 2 — voice pipeline configuration."""
+        current = dict(self.config_entry.options or {})
+        if self._pending:
+            current.update(self._pending)
+            self._pending = None
+
+        if user_input is not None:
+            tts_engine = str(
+                user_input.get(CONF_TTS_ENGINE, current.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE))
+            ).strip()
+            stt_engine = str(
+                user_input.get(CONF_STT_ENGINE, current.get(CONF_STT_ENGINE, DEFAULT_STT_ENGINE))
+            ).strip()
+            ww_engine = str(
+                user_input.get(CONF_WAKE_WORD_ENGINE, current.get(CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE))
+            ).strip()
+
+            merged: dict = {
+                # carry forward everything
+                CONF_ENTITY_FILTER: current.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER),
+                CONF_VERIFY_SSL: current.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+                # voice values
+                CONF_TTS_ENGINE: tts_engine,
+                CONF_TTS_VOICE: str(
+                    user_input.get(CONF_TTS_VOICE, current.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE))
+                ).strip(),
+                CONF_STT_ENGINE: stt_engine,
+                CONF_STT_MODEL: str(
+                    user_input.get(CONF_STT_MODEL, current.get(CONF_STT_MODEL, DEFAULT_STT_MODEL))
+                ).strip(),
+                CONF_WAKE_WORD_ENGINE: ww_engine,
+                CONF_WAKE_WORD: _parse_wake_word(
+                    user_input.get(CONF_WAKE_WORD, current.get(CONF_WAKE_WORD, DEFAULT_WAKE_WORD))
+                ),
+                CONF_MEDIA_PLAYER: str(
+                    user_input.get(CONF_MEDIA_PLAYER, current.get(CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER))
+                ).strip(),
+            }
+            return self.async_create_entry(
+                title="",
+                data=merged,
+            )
+
+        current_tts_engine = current.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)
+        current_stt_engine = current.get(CONF_STT_ENGINE, DEFAULT_STT_ENGINE)
+        current_ww_engine = current.get(CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE)
+        current_ww = ", ".join(current.get(CONF_WAKE_WORD, DEFAULT_WAKE_WORD))
+        current_mp = current.get(CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER)
+
+        return self.async_show_form(
+            step_id="voice",
+            data_schema=vol.Schema({
+                vol.Required(
+                    CONF_TTS_ENGINE,
+                    default=current_tts_engine,
+                    description={"suggested_value": current_tts_engine},
+                ): vol.In(TTS_ENGINE_OPTIONS),
+                vol.Optional(
+                    CONF_TTS_VOICE,
+                    default=current.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE),
+                    description={"suggested_value": current.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE)},
+                ): str,
+                vol.Required(
+                    CONF_STT_ENGINE,
+                    default=current_stt_engine,
+                    description={"suggested_value": current_stt_engine},
+                ): vol.In(STT_ENGINE_OPTIONS),
+                vol.Optional(
+                    CONF_STT_MODEL,
+                    default=current.get(CONF_STT_MODEL, DEFAULT_STT_MODEL),
+                    description={"suggested_value": current.get(CONF_STT_MODEL, DEFAULT_STT_MODEL)},
+                ): str,
+                vol.Required(
+                    CONF_WAKE_WORD_ENGINE,
+                    default=current_ww_engine,
+                    description={"suggested_value": current_ww_engine},
+                ): vol.In(WAKE_WORD_ENGINE_OPTIONS),
+                vol.Optional(
+                    CONF_WAKE_WORD,
+                    default=current_ww,
+                    description={"suggested_value": current_ww},
+                ): str,
+                vol.Optional(
+                    CONF_MEDIA_PLAYER,
+                    default=current_mp,
+                    description={"suggested_value": current_mp},
+                ): str,
+            }),
+        )
+

@@ -23,7 +23,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL
+from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE, CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL, CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE, CONF_WAKE_WORD, DEFAULT_WAKE_WORD, CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER
 from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,12 +108,26 @@ class HermesBridge:
         hermes_token: str,
         entity_filter: list[str],
         verify_ssl: bool = True,
+        tts_engine: str = DEFAULT_TTS_ENGINE,
+        tts_voice: str = DEFAULT_TTS_VOICE,
+        stt_engine: str = DEFAULT_STT_ENGINE,
+        stt_model: str = DEFAULT_STT_MODEL,
+        wake_word_engine: str = DEFAULT_WAKE_WORD_ENGINE,
+        wake_word: str = DEFAULT_WAKE_WORD,
+        media_player_entity: str = DEFAULT_MEDIA_PLAYER,
     ) -> None:
         self.hass = hass
         self.hermes_url = hermes_url.rstrip("/")
         self.hermes_token = hermes_token
         self.entity_filter = entity_filter
         self.verify_ssl = verify_ssl
+        self.tts_engine = tts_engine
+        self.tts_voice = tts_voice
+        self.stt_engine = stt_engine
+        self.stt_model = stt_model
+        self.wake_word_engine = wake_word_engine
+        self.wake_word = wake_word
+        self.media_player_entity = media_player_entity
         self._session: Any = None
         self._ws: Any = None
         self._connected = False
@@ -267,6 +281,10 @@ class HermesBridge:
             {"entity_id": "sensor.hermes_total_errors", "state": self._total_errors, "attributes": {"friendly_name": "Hermes Voice Errors", "icon": "mdi:alert-circle"}},
             {"entity_id": "sensor.ha_ws_connection", "state": "on" if self._connected else "off", "attributes": {"friendly_name": "HA WebSocket Connection", "icon": "mdi:connection"}},
             {"entity_id": "sensor.hermes_voice_ready", "state": "on" if self._voice_ready else "off", "attributes": {"friendly_name": "Hermes Voice Ready", "icon": "mdi:account-voice"}},
+            {"entity_id": "sensor.hermes_tts_voice", "state": self.tts_voice or "none", "attributes": {"friendly_name": "Hermes TTS Voice", "icon": "mdi:account-voice"}},
+            {"entity_id": "sensor.hermes_stt_engine", "state": self.stt_engine or "none", "attributes": {"friendly_name": "Hermes STT Engine", "icon": "mdi:microphone"}},
+            {"entity_id": "sensor.hermes_wake_word", "state": ", ".join(self.wake_word) if isinstance(self.wake_word, list) else str(self.wake_word), "attributes": {"friendly_name": "Hermes Wake Word", "icon": "mdi:emoticon-excited"}},
+            {"entity_id": "sensor.hermes_media_player", "state": self.media_player_entity or "none", "attributes": {"friendly_name": "Hermes Media Player", "icon": "mdi:speaker"}},
         ]
 
 

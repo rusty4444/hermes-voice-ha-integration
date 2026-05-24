@@ -17,8 +17,21 @@
   "options": {
     "step": {
       "init": {
+        "title": "Allow-listed entities & SSL",
         "data": {
-          "entity_filter": "Entity IDs to monitor (empty = all)"
+          "entity_filter": "Entity IDs to monitor (empty = all; one per line or comma-separated)"
+        }
+      },
+      "voice": {
+        "title": "Voice pipeline",
+        "data": {
+          "tts_engine": "TTS engine",
+          "tts_voice": "Default TTS voice / voice-ID",
+          "stt_engine": "STT engine",
+          "stt_model": "STT model size",
+          "wake_word_engine": "Wake-word engine",
+          "wake_word": "Wake-word keyword(s) (one per line or comma-separated)",
+          "media_player_entity": "Media player entity ID for TTS playback"
         }
       }
     }

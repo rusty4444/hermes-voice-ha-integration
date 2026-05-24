@@ -83,6 +83,26 @@ _DESCRIPTIONS = [
         name="Hermes Voice Ready",
         icon="mdi:account-voice",
     ),
+    SensorEntityDescription(
+        key="hermes_tts_voice",
+        name="Hermes TTS Voice",
+        icon="mdi:account-voice",
+    ),
+    SensorEntityDescription(
+        key="hermes_stt_engine",
+        name="Hermes STT Engine",
+        icon="mdi:microphone",
+    ),
+    SensorEntityDescription(
+        key="hermes_wake_word",
+        name="Hermes Wake Word",
+        icon="mdi:emoticon-excited",
+    ),
+    SensorEntityDescription(
+        key="hermes_media_player",
+        name="Hermes Media Player",
+        icon="mdi:speaker",
+    ),
 ]
 
 

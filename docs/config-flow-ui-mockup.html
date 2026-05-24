@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hermes HA Config Flow — Mockup</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#f5f5f5;margin:0;padding:24px}
+  h2{color:#03a9f4;margin-bottom:4px}
+  .ha-card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.15);max-width:640px;margin:0 auto 24px;overflow:hidden}
+  .ha-card header{background:#f0f8ff;padding:16px 20px;font-weight:600;color:#03a9f4;border-bottom:1px solid #e0e0e0}
+  .ha-card section{padding:20px}
+  .row{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  label{font-size:13px;font-weight:500;color:#444;max-width:260px}
+  input,select{flex:1;max-width:300px;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px;background:#fafafa}
+  select{background:#fafafa}
+  .section-label{font-size:12px;font-weight:700;text-transform:uppercase;color:#888;margin:20px 0 10px;letter-spacing:.6px}
+  .btn-row{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid #e0e0e0;background:#fafafa}
+  button{padding:8px 20px;border:none;border-radius:8px;font-size:14px;cursor:pointer}
+  .btn-confirm{background:#03a9f4;color:#fff;font-weight:600}
+  .btn-secondary{background:#e0e0e0;color:#333}
+</style>
+</head>
+<body>
+
+<h2>🛠 Hermes Voice Assistant — Options Flow (mockup)</h2>
+<p style="text-align:center;color:#888;margin-bottom:24px">
+  Generated mockup — real UI shown after deployment. Screenshots welcome via PR.
+</p>
+
+<!-- ===== STEP 1: Allow-list + SSL ===== -->
+<div class="ha-card">
+  <header>Step 1 of 2 — Allow-listed entities &amp; SSL</header>
+  <section>
+    <div class="row">
+      <label for="entity-filter">Entity IDs to monitor<br><small style="color:#aaa;font-weight:400">empty = all; one per line or comma-separated</small></label>
+      <textarea id="entity-filter" rows="3" style="flex:1;max-width:300px;border:1px solid #ccc;border-radius:6px;padding:6px;font-size:13px;font-family:monospace">light.living_room, light.kitchen, sensor.temperature</textarea>
+    </div>
+    <div class="row">
+      <label for="verify-ssl">Verify SSL certificates</label>
+      <input type="checkbox" id="verify-ssl" checked>
+    </div>
+  </section>
+  <div class="btn-row">
+    <button class="btn-confirm">Next → Voice pipeline</button>
+    <button class="btn-secondary" disabled>Cancel</button>
+  </div>
+</div>
+
+<!-- ===== STEP 2: Voice pipeline ===== -->
+<div class="ha-card">
+  <header>Step 2 of 2 — Voice pipeline</header>
+  <section>
+    <div class="section-label">TTS (text-to-speech)</div>
+    <div class="row">
+      <label for="tts-engine">TTS engine</label>
+      <select id="tts-engine">
+        <option selected>edge</option>
+        <option>piper</option>
+        <option>elevenlabs</option>
+        <option>openai</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="tts-voice">Default TTS voice / voice-ID</label>
+      <input id="tts-voice" value="en-US-AriaNeural" placeholder="e.g. en-US-AriaNeural">
+    </div>
+    <div class="section-label">STT (speech-to-text)</div>
+    <div class="row">
+      <label for="stt-engine">STT engine</label>
+      <select id="stt-engine">
+        <option selected>faster-whisper</option>
+        <option>whisper-cpp</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="stt-model">STT model size</label>
+      <input id="stt-model" value="tiny" placeholder="e.g. tiny / base / small / medium / large">
+    </div>
+    <div class="section-label">Wake word</div>
+    <div class="row">
+      <label for="ww-engine">Wake-word engine</label>
+      <select id="ww-engine">
+        <option selected>porcupine</option>
+        <option>openwakeword</option>
+        <option>command</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="ww-keyword">Wake-word keyword(s)<br><small style="color:#aaa;font-weight:400">one per line or comma-separated</small></label>
+      <input id="ww-keyword" value="computer" placeholder="e.g. hey jarvis, computer">
+    </div>
+    <div class="section-label">Playback</div>
+    <div class="row">
+      <label for="media-player">Media player entity ID<br><small style="color:#aaa;font-weight:400">for TTS playback</small></label>
+      <input id="media-player" value="media_player.living_room_speaker" placeholder="media_player.xxx">
+    </div>
+  </section>
+  <div class="btn-row">
+    <button class="btn-confirm">✓ Submit</button>
+    <button class="btn-secondary">← Back</button>
+  </div>
+</div>
+
+</body>
+</html>
