@@ -176,6 +176,8 @@ class OpenWakeWordEngine(WakeWordEngine):
     def available(self) -> bool:
         try:
             import openwakeword  # noqa: F401
+            import numpy  # noqa: F401
+            import pyaudio  # noqa: F401
             return True
         except ImportError:
             return False
@@ -262,11 +264,17 @@ class CommandWWEngine(WakeWordEngine):
 
     def listen(self, timeout_seconds: float = 60.0) -> bool:
         cmd = [part.replace("{timeout}", str(int(timeout_seconds))) for part in self._command]
-        self._proc = subprocess.run(cmd, timeout=timeout_seconds + 5)
-        return self._proc.returncode == 0
+        self._proc = subprocess.Popen(cmd)
+        try:
+            return self._proc.wait(timeout=timeout_seconds + 5) == 0
+        except subprocess.TimeoutExpired:
+            self.stop()
+            return False
+        finally:
+            self._proc = None
 
     def stop(self) -> None:
-        if self._proc:
+        if self._proc and self._proc.poll() is None:
             try:
                 self._proc.terminate()
             except Exception:

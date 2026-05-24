@@ -1,15 +1,13 @@
 name: "Hermes Voice Assistant"
-version: "0.3.0"
+version: "0.0.1"
 slug: "hermes_voice"
-description: "Local on-device voice assistant for Home Assistant — wake word → STT → LLM → TTS → media_player. No cloud. No latency. No subscription."
+description: "Voice assistant bridge for Home Assistant — wake word → STT → Hermes LLM → TTS → media_player. Can run local-first with local engines."
 url: "https://github.com/rusty4444/hermes-voice-ha-integration"
 arch:
   - aarch64
   - amd64
 hassio_api: true
-hassio_role: manager
 homeassistant_api: true
-host_network: true
 ingress: true
 ingress_port: 7860
 panel_icon: "mdi:assistant"

@@ -1,84 +1,94 @@
 // Hermes Action Bar — Lovelace Custom Card for hermes-voice-ha-integration
-// Served as /hacsfiles/hermes_action_bar.js
+// Served as /hermes_static/hermes_action_bar.js
 
 class HermesActionBar extends HTMLElement {
   setConfig(config) {
-    this.config = config;
-    this.attachShadow({ mode: "open" });
+    this.config = config || {};
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
   }
 
   connectedCallback() {
-    if (!this.shadowRoot) return;
     this._render();
   }
 
   _render() {
+    if (!this.shadowRoot || !this.config) return;
     const { title = "Hermes Voice", show_status = true } = this.config;
-    const shadow = this.shadowRoot;
-    shadow.innerHTML = `
+    const safeTitle = this._escapeHtml(String(title));
+    const readyState = this._getReadyState();
+    this.shadowRoot.innerHTML = `
       <style>
-        :host {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 10px 16px;
-          margin: 8px 0;
-          background: rgba(38, 198, 218, 0.08);
-          border: 1px solid rgba(38, 198, 218, 0.25);
-          border-radius: 12px;
-          font-family: var(--paper-font-body1_-_font-family, sans-serif);
-          color: var(--primary-text-color);
-        }
-        ha-card { flex: 1; }
-        .title { font-weight: 600; font-size: 1rem; margin: 0 4px; }
+        :host { display: block; }
+        ha-card { padding: 12px 16px; }
+        #bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        .title { font-weight: 600; font-size: 1rem; margin-right:auto; }
         .status { display:flex; align-items:center; gap:4px; font-size: .82rem; color: var(--secondary-text-color); }
         .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
         .dot.on  { background: #4caf50; }
         .dot.off { background: #f44336; }
+        button { border:0; border-radius:8px; padding:8px 10px; cursor:pointer; background:var(--secondary-background-color); color:var(--primary-text-color); }
+        button.enable { color:#1b8f3a; }
+        button.disable { color:#c62828; }
       </style>
       <ha-card>
         <div id="bar">
           <ha-icon icon="mdi:account-voice"></ha-icon>
-          <span class="title">${title}</span>
-          ${show_status ? this._statusHtml() : ''}
-          <action-bar-button id="voice-enable" style="color:#4caf50;">Enable</action-bar-button>
-          <action-bar-button id="voice-disable" style="color:#f44336;">Disable</action-bar-button>
-          <action-bar-button id="voice-status">Status</action-bar-button>
+          <span class="title">${safeTitle}</span>
+          ${show_status ? `<span class="status"><span class="dot ${readyState.ready ? 'on' : 'off'}"></span>${readyState.label}</span>` : ''}
+          <button class="enable" id="voice-enable">Enable</button>
+          <button class="disable" id="voice-disable">Disable</button>
+          <button id="voice-status">Status</button>
         </div>
       </ha-card>
     `;
-    this.shadowRoot.getElementById("voice-enable") &&
-      (this.shadowRoot.getElementById("voice-enable").onclick = () =>
-        this._fire("hermes_voice_enable"));
-    this.shadowRoot.getElementById("voice-disable") &&
-      (this.shadowRoot.getElementById("voice-disable").onclick = () =>
-        this._fire("hermes_voice_disable"));
-    this.shadowRoot.getElementById("voice-status") &&
-      (this.shadowRoot.getElementById("voice-status").onclick = () =>
-        this._fire("hermes_voice_status"));
+    this.shadowRoot.getElementById("voice-enable")?.addEventListener("click", () => this._callHermes("enable"));
+    this.shadowRoot.getElementById("voice-disable")?.addEventListener("click", () => this._callHermes("disable"));
+    this.shadowRoot.getElementById("voice-status")?.addEventListener("click", () => this._showMoreInfo());
   }
 
-  _statusHtml() {
-    const h = window?.hass;
-    if (!h) return '';
-    const ready = Object.values(h.states || {}).some(
-      e => (e.entity_id || '').startsWith('sensor.hermes_') && e.state === 'on',
-    );
-    return `<span class="dot ${ready ? 'on' : 'off'}"></span>
-            <span class="status">${ready ? 'Ready' : 'Offline'}</span>`;
+  _getReadyState() {
+    const states = this._hass?.states || {};
+    const voice = states["sensor.hermes_voice_ready"] || states["binary_sensor.hermes_voice_ready"];
+    const gateway = states["sensor.hermes_gateway_status"] || states["binary_sensor.hermes_gateway_status"];
+    const ready = [voice?.state, gateway?.state].includes("on");
+    return { ready, label: ready ? "Ready" : "Offline" };
   }
 
-  _fire(method) {
-    const h = window?.hass;
-    if (!h) return;
-    h.callService('homeassistant', 'toggle', {
-      entity_id: 'sensor.hermes_voice_ready',
-    });
-    console.info('[HermesActionBar]', method);
+  _callHermes(action) {
+    if (!this._hass) return;
+    this._hass.callService("hermes", "voice_settings", { action });
+  }
+
+  _escapeHtml(value) {
+    return value.replace(/[&<>"]/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+    }[char]));
+  }
+
+  _showMoreInfo() {
+    const entityId = this._hass?.states?.["sensor.hermes_voice_ready"]
+      ? "sensor.hermes_voice_ready"
+      : "binary_sensor.hermes_voice_ready";
+    this.dispatchEvent(new CustomEvent("hass-more-info", {
+      bubbles: true,
+      composed: true,
+      detail: { entityId },
+    }));
   }
 
   getCardSize() { return 2; }
 }
 
-customElements.define("hermes-action-bar", HermesActionBar);
+if (!customElements.get("hermes-action-bar")) {
+  customElements.define("hermes-action-bar", HermesActionBar);
+}
 console.info("HermesActionBar card loaded");

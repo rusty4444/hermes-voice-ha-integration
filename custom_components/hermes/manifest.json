@@ -6,10 +6,6 @@
   "documentation": "https://github.com/rusty4444/hermes-voice-ha-integration",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/rusty4444/hermes-voice-ha-integration/issues",
-  "requirements": [
-    "aiohttp>=3.9",
-    "edge-tts>=6.1",
-    "sounddevice>=0.4"
-  ],
-  "version": "0.3.0"
+  "requirements": [],
+  "version": "0.0.1"
 }

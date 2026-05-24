@@ -1,9 +1,4 @@
-"""Hermes HA services — exposed to Hermes tool calling via HA WebSocket.
-
-Register the ``hermes_command`` service so Hermes can invoke HA services
-without going through the REST API.  This is a native WebSocket service
-call path (P2 goal from the plan).  The P1 stub is replaced by this module.
-"""
+"""Hermes Home Assistant services."""
 
 from __future__ import annotations
 
@@ -11,7 +6,6 @@ import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN
 
@@ -22,39 +16,61 @@ SERVICE_VOICE_SETTINGS = "voice_settings"
 
 
 async def async_register_services(hass: HomeAssistant) -> None:
-    """Register HA services for Hermes → HA control.
+    """Register HA-native services used by the Hermes integration."""
 
-    Called from ``HermesBridge.async_register_services()`` during setup.
-    """
-
-    async def _handle_hermes_command(call: ServiceCall) -> dict[str, Any]:
-        from plugins.home_assistant.ha_assistant import call_service as sync_call_service
-
+    async def _handle_hermes_command(call: ServiceCall) -> None:
         domain = call.data.get("domain", "")
         service = call.data.get("service", "")
         entity_id = call.data.get("entity_id")
-        data = call.data.get("data") or {}
+        data = dict(call.data.get("data") or {})
 
-        result = sync_call_service(domain, service, entity_id=entity_id, data=data)
-        _LOGGER.info(
-            "Hermes command: %s.%s → entity=%s → %s",
-            domain, service, entity_id, "ok" if "error" not in result else result["error"],
+        if not domain or not service:
+            _LOGGER.warning("Ignoring Hermes command with missing domain/service: %s", call.data)
+            return
+
+        target = {"entity_id": entity_id} if entity_id else None
+        await hass.services.async_call(
+            domain,
+            service,
+            data,
+            target=target,
+            blocking=False,
         )
-        return result
+        _LOGGER.info("Hermes command dispatched: %s.%s entity=%s", domain, service, entity_id)
 
-    async def _handle_voice_settings(call: ServiceCall) -> dict[str, Any]:
-        from plugins.home_assistant.ha_assistant import search_entities
+    async def _handle_voice_settings(call: ServiceCall) -> None:
+        query = str(call.data.get("query", "")).lower().strip()
+        action = str(call.data.get("action") or query).lower().strip()
 
-        query = call.data.get("query", "")
-        search_result = search_entities(query=query)
-        entities = search_result.get("entities", [])
-        _LOGGER.info(
-            "Hermes voice settings query='%s' → %d results", query, len(entities),
-        )
-        return {"entities": entities}
+        if action in {"enable", "disable", "status"}:
+            for bridge in hass.data.get(DOMAIN, {}).values():
+                if hasattr(bridge, "async_relay_command"):
+                    await bridge.async_relay_command({"type": "voice_settings", "action": action})
+            _LOGGER.info("Hermes voice action requested: %s", action)
+            return
 
-    # Register both services
-    hass.services.async_register(DOMAIN, SERVICE_HERMES_COMMAND, _handle_hermes_command)
-    hass.services.async_register(DOMAIN, SERVICE_VOICE_SETTINGS, _handle_voice_settings)
+        matches: list[dict[str, Any]] = []
+        for state in hass.states.async_all():
+            friendly_name = str(state.attributes.get("friendly_name", ""))
+            haystack = f"{state.entity_id} {friendly_name}".lower()
+            if not query or query in haystack:
+                matches.append({
+                    "entity_id": state.entity_id,
+                    "state": state.state,
+                    "attributes": dict(state.attributes),
+                })
+        _LOGGER.info("Hermes voice settings query=%r matched %d entities", query, len(matches))
+
+    if not hass.services.has_service(DOMAIN, SERVICE_HERMES_COMMAND):
+        hass.services.async_register(DOMAIN, SERVICE_HERMES_COMMAND, _handle_hermes_command)
+    if not hass.services.has_service(DOMAIN, SERVICE_VOICE_SETTINGS):
+        hass.services.async_register(DOMAIN, SERVICE_VOICE_SETTINGS, _handle_voice_settings)
 
     _LOGGER.info("Hermes services registered: %s, %s", SERVICE_HERMES_COMMAND, SERVICE_VOICE_SETTINGS)
+
+
+def async_unregister_services(hass: HomeAssistant) -> None:
+    """Unregister Hermes services when the final config entry unloads."""
+    for service in (SERVICE_HERMES_COMMAND, SERVICE_VOICE_SETTINGS):
+        if hass.services.has_service(DOMAIN, service):
+            hass.services.async_remove(DOMAIN, service)

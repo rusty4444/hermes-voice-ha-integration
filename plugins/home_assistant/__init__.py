@@ -319,20 +319,33 @@ _TOOLS = (
 )
 
 
+_WS_LISTENER_THREAD = None
+
+
 def _on_session_start(**kwargs) -> None:
     """Pre-warm the entity cache on session start so the first query is fast."""
+    global _WS_LISTENER_THREAD
     try:
         if is_available():
             entities = refresh_entity_cache(force=True)
             logger.info("HA entity cache pre-warmed: %d entities", len(entities))
 
-            # Start the HA WebSocket event listener (P2)
+            # Start one HA WebSocket event listener per process.
             url, token = _get_ha_creds()
-            from plugins.home_assistant.event_watcher import start_ws_listener, get_event_source
-            ws_url = f"{url.replace('http', 'ws')}/api/websocket"
-            thread = start_ws_listener(ws_url, token)
+            thread = _WS_LISTENER_THREAD
+            if thread is None or not thread.is_alive():
+                from plugins.home_assistant.event_watcher import start_ws_listener
+                if url.startswith("https://"):
+                    ws_url = "wss://" + url[len("https://"):]
+                elif url.startswith("http://"):
+                    ws_url = "ws://" + url[len("http://"):]
+                else:
+                    ws_url = url
+                ws_url = f"{ws_url}/api/websocket"
+                thread = start_ws_listener(ws_url, token)
+                _WS_LISTENER_THREAD = thread
             if thread:
-                logger.info("HA WS event listener started")
+                logger.info("HA WS event listener active")
             else:
                 logger.info("HA WS event listener skipped (no aiohttp available)")
 
@@ -349,7 +362,7 @@ def _on_session_start(**kwargs) -> None:
             try:
                 from plugins.home_assistant.status_sensors import get_status_sensors
                 sensors = get_status_sensors()
-                sensors.start_time = _time.time()  # use time.time for absolute reference
+                sensors.start_time = _time.monotonic()
                 sensors.gateway_connected = True
                 sensors.ws_connected = thread is not None
                 logger.info("HA status sensors initialised")

@@ -20,6 +20,7 @@ path); up to 30s on the fallback poll path.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
@@ -189,19 +190,20 @@ async def _ws_loop(
     """Async WebSocket listener — runs in background thread."""
     import aiohttp  # lazy import
 
-    headers = {
-        "Authorization": f"Bearer {ha_token}",
-        "Content-Type": "application/json",
-    }
-
     async with aiohttp.ClientSession() as session:
-        async with session.ws_connect(ws_url, headers=headers) as ws:
+        async with session.ws_connect(ws_url) as ws:
+            hello = await ws.receive_json(timeout=5)
+            if hello.get("type") == "auth_required":
+                await ws.send_json({"type": "auth", "access_token": ha_token})
+                auth = await ws.receive_json(timeout=5)
+                if auth.get("type") != "auth_ok":
+                    raise RuntimeError(f"Home Assistant WebSocket auth failed: {auth}")
+
             logger.info("HA WS event listener connected")
 
-            # Subscribe to state_changed events
-            sub_id = await ws.send_json({
+            await ws.send_json({
                 "id": 1,
-                "type": "subscribe",
+                "type": "subscribe_events",
                 "event_type": "state_changed",
             })
 
@@ -214,8 +216,9 @@ async def _ws_loop(
                     logger.warning("HA WS listener error: %s", exc)
                     break
 
-                if msg.get("event_type") == "state_changed":
-                    data = msg.get("data", {})
+                event = msg.get("event", {})
+                if event.get("event_type") == "state_changed":
+                    data = event.get("data", {})
                     entity_id = data.get("entity_id", "")
                     new_state = data.get("new_state") or {}
                     old_state = data.get("old_state") or {}

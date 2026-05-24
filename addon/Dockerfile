@@ -21,26 +21,30 @@ RUN apk add --no-cache \
     jq
 
 # ---------------------------------------------------------------------------
-# Clone Hermes Agent (or use local dev path)
+# Clone Hermes Agent and this integration bundle
 # ---------------------------------------------------------------------------
 WORKDIR /opt
 ARG HERMES_REPO=https://github.com/NousResearch/hermes-agent.git
 ARG HERMES_REF=main
-RUN git clone --depth 1 --branch ${HERMES_REF} ${HERMES_REPO} hermes-agent
+ARG INTEGRATION_REPO=https://github.com/rusty4444/hermes-voice-ha-integration.git
+ARG INTEGRATION_REF=main
+RUN git clone --depth 1 --branch ${HERMES_REF} ${HERMES_REPO} hermes-agent && \
+    git clone --depth 1 --branch ${INTEGRATION_REF} ${INTEGRATION_REPO} hermes-voice-ha-integration
 
 # ---------------------------------------------------------------------------
-# Python virtual environment with voice stack deps
+# Python virtual environment with Hermes + voice stack deps
 # ---------------------------------------------------------------------------
 WORKDIR /opt/hermes-agent
 RUN python3 -m venv .venv && \
     .venv/bin/pip install --upgrade pip setuptools wheel && \
+    .venv/bin/pip install -e . && \
     .venv/bin/pip install \
-    aiohttp>=3.9 \
-    pydantic>=2.0 \
-    edge-tts>=6.1 \
-    sounddevice>=0.4 \
-    numpy>=1.26 \
-    faster-whisper>=1.0
+    "aiohttp>=3.9" \
+    "pydantic>=2.0" \
+    "edge-tts>=6.1" \
+    "sounddevice>=0.4" \
+    "numpy>=1.26" \
+    "faster-whisper>=1.0"
 
 # Optional: Piper TTS (offline)
 # RUN .venv/bin/pip install piper-tts && \
@@ -53,13 +57,14 @@ RUN python3 -m venv .venv && \
 # ---------------------------------------------------------------------------
 # Install Hermes HA integration plugin
 # ---------------------------------------------------------------------------
-COPY plugins/ /opt/hermes-agent/plugins/
-COPY custom_components/ /opt/hermes-agent/custom_components/
+RUN cp -R /opt/hermes-voice-ha-integration/plugins/home_assistant /opt/hermes-agent/plugins/home_assistant && \
+    cp -R /opt/hermes-voice-ha-integration/plugins/voice_stack /opt/hermes-agent/plugins/voice_stack && \
+    cp -R /opt/hermes-voice-ha-integration/custom_components /opt/hermes-agent/custom_components
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-COPY addon/run.sh /opt/run.sh
+COPY run.sh /opt/run.sh
 RUN chmod +x /opt/run.sh
 
 # Hermes config directory

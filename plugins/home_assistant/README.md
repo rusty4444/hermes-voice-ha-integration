@@ -1,7 +1,6 @@
 # Hermes Home Assistant Plugin
 
-Plug your Hermes Agent into Home Assistant for full smart-home control.  
-**No cloud. No latency. No subscription.**
+Plug your Hermes Agent into Home Assistant for smart-home control. Keep it local by choosing a local Hermes model and local STT/TTS engines.
 
 ## Quick Start
 

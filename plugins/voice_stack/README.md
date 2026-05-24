@@ -4,7 +4,7 @@ Local voice pipeline for Hermes Agent.
 
 **Wake Word → STT → LLM → TTS → HA media_player**
 
-> ⚠️ P1 scaffold — engines are stubs. Real hardware wiring ships in the next phase.
+> ⚠️ v0.0.1: engine wrappers are implemented, but microphone/speaker behaviour depends on your host audio hardware and deployment topology.
 
 ## Architecture
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -27,7 +28,7 @@ from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = ["sensor"]
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 # Minimum interval between state-change pushes (seconds)
 _PUSH_INTERVAL = timedelta(seconds=0.2)
@@ -45,8 +46,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     url = entry.data.get(CONF_URL, "http://localhost:8123")
     token = entry.data.get(CONF_TOKEN, "")
-    entity_filter = entry.data.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER)
-    verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+    options = entry.options or {}
+    entity_filter = options.get(CONF_ENTITY_FILTER, entry.data.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER))
+    verify_ssl = options.get(CONF_VERIFY_SSL, entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
 
     bridge = HermesBridge(hass, url, token, entity_filter, verify_ssl)
     hass.data[DOMAIN][entry.entry_id] = bridge
@@ -55,10 +57,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await bridge.async_connect()
 
     # Register state-change listener
+    tracked_entities = entity_filter or None
     entry.async_on_unload(
         async_track_state_change_event(
             hass,
-            entity_filter,
+            tracked_entities,
             bridge.on_state_change,
         )
     )
@@ -69,6 +72,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register HermesActionBar Lovelace card resource
     await _register_frontend(hass)
 
+    # Forward setup to supported entity platforms.
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     _LOGGER.info("Hermes integration set up — URL: %s, entities tracked: %d",
                  url, len(entity_filter))
     return True
@@ -76,10 +82,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     bridge: HermesBridge | None = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if bridge:
         await bridge.async_shutdown()
-    return True
+    if not hass.data.get(DOMAIN):
+        from .services import async_unregister_services
+        async_unregister_services(hass)
+    return unload_ok
 
 
 class HermesBridge:
@@ -108,6 +118,10 @@ class HermesBridge:
         self._ws: Any = None
         self._connected = False
         self._pending: list[dict[str, Any]] = []
+        self._start_time = time.monotonic()
+        self._total_interactions = 0
+        self._total_errors = 0
+        self._voice_ready = False
 
     @property
     def connected(self) -> bool:
@@ -206,24 +220,62 @@ class HermesBridge:
             self._connected = False
 
 
-async def _flush_pending(ws, pending: list) -> None:
-    """Send queued messages once reconnected."""
-    while pending:
-        try:
-            await ws.send_json(pending.pop(0))
-        except Exception:
-            pending.insert(0, pending.pop(0) if pending else {})
-            break
-
     async def async_shutdown(self) -> None:
         """Clean up connections."""
         self._connected = False
         if self._ws:
             await self._ws.close()
+            self._ws = None
         if self._session:
             await self._session.close()
+            self._session = None
 
     async def async_relay_command(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Relay a Hermes dispatch command to HA."""
+        """Relay a Hermes voice/control command over the Hermes WebSocket."""
         _LOGGER.debug("Hermes command received: %s", command)
-        return {"ok": True, "message": "P0: command relay is stub"}
+        action = str(command.get("action", "")).lower()
+        payload = {"type": "voice_action", "action": action}
+
+        if action == "enable":
+            self._voice_ready = True
+        elif action == "disable":
+            self._voice_ready = False
+
+        if self._connected and self._ws:
+            try:
+                await self._ws.send_json(payload)
+                return {"ok": True, "sent": True, "voice_ready": self._voice_ready}
+            except Exception as exc:
+                _LOGGER.warning("Failed to relay Hermes voice action: %s", exc)
+
+        self._pending.append(payload)
+        if len(self._pending) > 1000:
+            self._pending = self._pending[-500:]
+        return {"ok": False, "queued": True, "voice_ready": self._voice_ready}
+
+    def status_snapshot(self) -> list[dict[str, Any]]:
+        """Return HA-local Hermes status sensor data.
+
+        The custom component must be self-contained for HACS/manual installs,
+        so it cannot import the Hermes plugin package at runtime.
+        """
+        uptime_hours = (time.monotonic() - self._start_time) / 3600.0
+        return [
+            {"entity_id": "sensor.hermes_gateway_status", "state": "on" if self._connected else "off", "attributes": {"friendly_name": "Hermes Gateway Status", "icon": "mdi:router-wireless"}},
+            {"entity_id": "sensor.hermes_uptime_hours", "state": round(uptime_hours, 2), "attributes": {"friendly_name": "Hermes Uptime", "icon": "mdi:timer-outline"}},
+            {"entity_id": "sensor.hermes_total_interactions", "state": self._total_interactions, "attributes": {"friendly_name": "Hermes Voice Interactions", "icon": "mdi:microphone"}},
+            {"entity_id": "sensor.hermes_total_errors", "state": self._total_errors, "attributes": {"friendly_name": "Hermes Voice Errors", "icon": "mdi:alert-circle"}},
+            {"entity_id": "sensor.ha_ws_connection", "state": "on" if self._connected else "off", "attributes": {"friendly_name": "HA WebSocket Connection", "icon": "mdi:connection"}},
+            {"entity_id": "sensor.hermes_voice_ready", "state": "on" if self._voice_ready else "off", "attributes": {"friendly_name": "Hermes Voice Ready", "icon": "mdi:account-voice"}},
+        ]
+
+
+async def _flush_pending(ws, pending: list) -> None:
+    """Send queued messages once reconnected."""
+    while pending:
+        payload = pending.pop(0)
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pending.insert(0, payload)
+            break

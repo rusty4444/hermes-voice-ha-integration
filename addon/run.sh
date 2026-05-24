@@ -43,11 +43,7 @@ echo "║  TTS:        ${TTS_ENGINE} (${TTS_VOICE})"
 echo "║  Wake Word:  ${WAKE_WORD}"
 echo "╚══════════════════════════════════════════╝"
 
-# Start Hermes Agent in gateway mode
-exec python -m hermes_gateway \
-    --provider "${HERMES_PROVIDER}" \
-    --model "${HERMES_MODEL}" \
-    --plugins home_assistant,voice_stack \
-    --host 0.0.0.0 \
-    --port 7860 \
-    --log-level "${LOG_LEVEL}"
+# Start Hermes gateway in foreground. Runtime configuration is read from
+# HERMES_HOME=/data/hermes, /data/options.json-derived environment variables,
+# and any config.yaml the user mounts/creates in /data/hermes.
+exec hermes gateway run

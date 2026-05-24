@@ -2,7 +2,7 @@
 # HA uses this to generate the developer-tools UI and the WebSocket API schema.
 
 hermes_command:
-  name: Heres command
+  name: Hermes command
   description: Execute a Home Assistant service call routed from Hermes.
   fields:
     domain:
@@ -32,11 +32,21 @@ hermes_command:
 
 voice_settings:
   name: Voice settings
-  description: Query HA entities for Hermes voice pipeline configuration.
+  description: Send a voice action to Hermes or query HA entities for voice pipeline configuration.
   fields:
+    action:
+      name: Action
+      description: Voice action to request.
+      required: false
+      selector:
+        select:
+          options:
+            - enable
+            - disable
+            - status
     query:
       name: Query
-      description: Entity search query.
+      description: Entity search query used when no action is supplied.
       required: false
       selector:
         text: {}

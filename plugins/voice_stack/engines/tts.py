@@ -94,10 +94,25 @@ class EdgeTTSEngine(TTSEngine):
         if _EDGE_VOICES_CACHE is not None and (now - _EDGE_VOICES_CACHE_TS) < 3600:
             return _EDGE_VOICES_CACHE  # type: ignore[return-value]
 
-        result = subprocess.run(
-            ["edge-tts", "--list-voices"],
-            capture_output=True, timeout=15, text=True,
-        )
+        fallback_voices = [
+            {"name": "en-US-AriaNeural", "locale": "en-US", "gender": "Female"},
+            {"name": "en-US-GuyNeural", "locale": "en-US", "gender": "Male"},
+            {"name": "en-GB-SoniaNeural", "locale": "en-GB", "gender": "Female"},
+            {"name": "en-GB-RyanNeural", "locale": "en-GB", "gender": "Male"},
+            {"name": "en-AU-NatashaNeural", "locale": "en-AU", "gender": "Female"},
+        ]
+        if not self.available():
+            return fallback_voices
+
+        try:
+            result = subprocess.run(
+                ["edge-tts", "--list-voices"],
+                capture_output=True, timeout=15, text=True,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning("Could not list edge-tts voices: %s", exc)
+            return fallback_voices
+
         voices: list[Dict[str, str]] = []
         if result.returncode == 0:
             import json
@@ -111,14 +126,9 @@ class EdgeTTSEngine(TTSEngine):
                     })
             except json.JSONDecodeError:
                 logger.warning("Could not parse edge-tts voice list JSON")
-                # Fallback: return known good voices
-                voices = [
-                    {"name": "en-US-AriaNeural", "locale": "en-US", "gender": "Female"},
-                    {"name": "en-US-GuyNeural", "locale": "en-US", "gender": "Male"},
-                    {"name": "en-GB-SoniaNeural", "locale": "en-GB", "gender": "Female"},
-                    {"name": "en-GB-RyanNeural", "locale": "en-GB", "gender": "Male"},
-                    {"name": "en-AU-NatashaNeural", "locale": "en-AU", "gender": "Female"},
-                ]
+                voices = fallback_voices
+        if not voices:
+            voices = fallback_voices
         _EDGE_VOICES_CACHE = voices
         _EDGE_VOICES_CACHE_TS = now
         return voices

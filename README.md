@@ -1,174 +1,605 @@
-# Hermes × Home Assistant — Voice Stack Integration
+# Hermes × Home Assistant Voice Integration
 
 ![Hermes + Home Assistant Logo](logo.png)
 
-**"Your entire smart home, controlled by your own on-device AI. No cloud. No latency. No subscription."**
+Connect **Hermes Agent** to **Home Assistant** so Hermes can understand your home, call HA services, and optionally run a wake-word → STT → LLM → TTS voice loop.
 
-A three-component integration that wires Hermes Agent to Home Assistant and adds a full
-local voice stack — wake word → STT → LLM → TTS → `media_player`.
+This repository is a bundle of three pieces:
 
----
+| Piece | Path | What it does |
+|---|---|---|
+| Home Assistant custom integration | `custom_components/hermes/` | Adds the `hermes` integration, HA services, status sensors, and the Lovelace action bar. |
+| Hermes Home Assistant plugin | `plugins/home_assistant/` | Gives Hermes tools for entity search, state lookup, service calls, bulk control, scene/script discovery, and HA context. |
+| Hermes voice-stack plugin | `plugins/voice_stack/` | Adds wake-word, speech-to-text, text-to-speech, and voice pipeline helpers. |
 
-## Components
-
-| # | Component | Location in repo |
-|---|-----------|-----------------|
-| A | **Home Assistant custom integration** | `custom_components/hermes/` |
-| B | **Hermes Home Assistant plugin** | `plugins/home_assistant/` |
-| C | **Hermes Voice Stack plugin** | `plugins/voice_stack/` |
+> **Release:** `v0.0.1` — first public release. Some packaging paths are intentionally simple and explicit so early users can install and debug each piece separately.
 
 ---
 
-### Component A — HA Custom Integration (`custom_components/hermes/`)
+## What you get
 
-Manages the WebSocket connection between HA and Hermes, exposes HA services via a
-config-entry-driven bridge, and provides dashboard UI helpers.
+- Ask Hermes natural-language smart-home questions: “Is the kitchen light on?”
+- Let Hermes call Home Assistant services: lights, switches, scenes, scripts, climate, media players, and more.
+- Use safety controls: blocked service domains, optional allow-list, and JSON-line audit logging.
+- Expose Hermes health into HA as status sensors.
+- Add a small Lovelace action bar to dashboards.
+- Build toward local voice control with configurable STT/TTS/wake-word engines.
 
-```
-custom_components/hermes/
-├── __init__.py       — WebSocket client + HermesBridge class
-├── config_flow.py    — HA config-entry wizard
-├── services.py       — async_register_admin_service callbacks
-├── manifest.json     — HA integration manifest
-├── strings.json      — UI strings for config flow
-└── web/              — (P1) Action-bar dashboard card
-```
+## Important reality check
 
-**Key mechanisms:**
-- Bidirectional entity sync via `entity_component.register()` for Hermes-created virtual entities
-- Incoming service routing: HA config entries → Hermes `ha_call_service()` callback
-- Event emission: HA calls Hermes via `conversation.process` → HA gateway
+The stack can be fully local **if you choose local engines and a local model**. The defaults are developer-friendly, not always cloud-free:
 
-### Component B — Hermes HA Plugin (`plugins/home_assistant/`)
-
-Wraps Component A and provides Hermes with structured thinking context about the home
-state. Registers core tools at agent start.
-
-```
-plugins/home_assistant/
-├── __init__.py       — plugin entry: connect, register 7 tools
-├── ha_assistant.py   — HAWebSocketBridge (entity cache, call_service, search, list_services)
-├── plugin.yaml       — config: ha_url, ha_token, auto_discover_services
-├── compound.py       — P0 compound tools (control_light_and_set_scene, turn_off_all_except)
-├── security.py       — P0 allow-list, block-list, audit log, 3-layer security
-└── README.md         — user-facing docs
-```
-
-### Component C — Voice Stack Plugin (`plugins/voice_stack/`)
-
-Audio pipeline loop: Wake Word → STT → Hermes → TTS → `media_player`.
-
-```
-plugins/voice_stack/
-├── __init__.py       — VoicePlugIn, 6 tools registered, engine wiring
-├── pipeline.py       — VoicePipeline orchestrator, audio record/play, voice system prompt
-├── engines/
-│   ├── __init__.py   — engine sub-package
-│   ├── tts.py        — EdgeTTS / PiperTTS / Command TTS
-│   ├── stt.py        — faster-whisper / whisper-cpp / Command STT
-│   └── wake_word.py  — Porcupine / OpenWakeWord / Command WW
-├── audio.py          — thin shim → pipeline.py (deprecated)
-├── plugin.yaml       — config: engines, confidence thresholds, media_player entity
-└── README.md         — voice stack docs
-```
-
-**Registered tools (P1):**
-
-| Tool | Description |
-|------|-------------|
-| `voice_status` | Show engine availability + pipeline state |
-| `voice_enable` | Enable continuous voice mode (wake word + STT + TTS) |
-| `voice_disable` | Disable continuous voice mode |
-| `voice_speak` | TTS-only: speak text through configured engine + media_player |
-| `voice_listen` | One-shot: record audio and return transcription |
-| `voice_prompt` | Return the voice-optimised system prompt with HA context |
+- Hermes can run local models or remote providers depending on your Hermes config.
+- Edge TTS is network-backed. Use Piper for offline TTS.
+- Porcupine requires a Picovoice access key. OpenWakeWord is the open-source option.
+- `media_player` playback needs audio that Home Assistant can access; generated local files may require an HTTP/media bridge in more complex deployments.
 
 ---
 
-## Installation
+## Architecture
 
-### 1. Hermes Agent (already installed)
+```text
+Voice / Chat request
+        │
+        ▼
+Hermes Agent
+  ├─ plugins/home_assistant     → HA REST/WebSocket API
+  └─ plugins/voice_stack        → wake word / STT / TTS / media playback
+        │
+        ▼
+Home Assistant
+  ├─ custom_components/hermes   → config flow, services, sensors
+  └─ Lovelace dashboard card    → custom:hermes-action-bar
+```
+
+### Hermes tools provided by the HA plugin
+
+| Tool | Purpose |
+|---|---|
+| `ha_search_entities` | Search entities by name, domain, area-like metadata, or entity ID. |
+| `ha_get_state` | Fetch current state and attributes for one entity. |
+| `ha_call_service` | Call a Home Assistant service with safety checks. |
+| `ha_get_overview` | Build a compact overview of the home. |
+| `ha_list_services` | Discover service domains and service names. |
+| `control_light_and_set_scene` | Compound helper for common light + scene actions. |
+| `turn_off_all_except` | Turn off a domain while preserving chosen entities. |
+| `ha_bulk_control` | Run multiple service calls and summarise results. |
+
+### Voice tools provided by the voice plugin
+
+| Tool | Purpose |
+|---|---|
+| `voice_status` | Show engine availability and pipeline state. |
+| `voice_enable` | Enable continuous wake-word listening. |
+| `voice_disable` | Disable continuous voice mode. |
+| `voice_speak` | Speak text through the configured TTS engine. |
+| `voice_listen` | One-shot record + transcription. |
+| `voice_prompt` | Build the voice-optimised prompt with HA context. |
+
+---
+
+## Prerequisites
+
+You need:
+
+1. **Home Assistant** with network access from the machine running Hermes.
+2. **Hermes Agent** installed and working.
+3. A **Home Assistant Long-Lived Access Token** for Hermes.
+4. Python 3.11+ for local development/plugin execution.
+5. Optional audio dependencies if you want voice input/output on the Hermes machine.
+
+---
+
+## Step 1 — Install Hermes Agent
+
+Install Hermes using the official installer:
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent && source .venv/bin/activate
+curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 ```
 
-### 2. Enable the HA plugin
+Restart your shell, then verify:
 
-1. Copy `plugins/home_assistant/plugin.yaml` to `~/.hermes/plugins/home_assistant/`
-2. Edit config with your HA URL and Long-Lived Access Token:
+```bash
+hermes --version
+hermes doctor
+```
+
+Run the setup wizard if this is your first Hermes install:
+
+```bash
+hermes setup
+```
+
+Choose a model/provider. For a local-first HA assistant, configure Hermes to use your local model endpoint (for example Ollama, vLLM, or llama.cpp). Remote providers also work.
+
+---
+
+## Step 2 — Create a Home Assistant token
+
+1. Open Home Assistant.
+2. Click your user profile/avatar.
+3. Scroll to **Security**.
+4. Under **Long-Lived Access Tokens**, click **Create Token**.
+5. Name it something clear, for example `Hermes Agent`.
+6. Copy the token now. Home Assistant only shows it once.
+
+Keep this token private. It can control your Home Assistant instance with your account permissions.
+
+---
+
+## Step 3 — Install the Hermes plugins
+
+Clone this repository:
+
+```bash
+mkdir -p ~/dev
+cd ~/dev
+git clone https://github.com/rusty4444/hermes-voice-ha-integration.git
+cd hermes-voice-ha-integration
+```
+
+Copy the plugins into your Hermes plugin directory:
+
+```bash
+mkdir -p ~/.hermes/plugins
+cp -R plugins/home_assistant ~/.hermes/plugins/home_assistant
+cp -R plugins/voice_stack ~/.hermes/plugins/voice_stack
+```
+
+Configure Home Assistant connection details for Hermes. The plugin reads standard environment variables:
+
+```bash
+cat >> ~/.hermes/.env <<'EOF'
+HASS_URL=http://homeassistant.local:8123
+HASS_TOKEN=replace-with-your-long-lived-access-token
+EOF
+```
+
+If your HA URL is different, use that instead, for example:
+
+```bash
+HASS_URL=http://192.168.1.50:8123
+```
+
+Enable the plugins in `~/.hermes/config.yaml`:
 
 ```yaml
-# ~/.hermes/config.yaml
 plugins:
   enabled:
     - home_assistant
-
-home_assistant:
-  ha_url: "http://homeassistant.local:8123"
-  ha_token: "<your-llat>"
-  auto_discover_services: true
+    - voice_stack
 ```
 
-### 3. In Home Assistant
+If your config already has a `plugins.enabled` list, add the two entries instead of replacing the whole section.
 
-- Create a Long-Lived Access Token (LLAT) in your HA profile → Security.
-- (P1) Install the `hermes-voice-ha-integration` custom component via HACS.
+Restart Hermes after changing plugins or `.env`.
 
 ---
 
-## P0 Exit Condition
+## Step 4 — Test Hermes ↔ Home Assistant before installing anything in HA
 
-Ask Hermes:
+Start Hermes:
 
+```bash
+hermes
 ```
+
+Ask:
+
+```text
+Search my Home Assistant lights.
+```
+
+Then try a read-only state check:
+
+```text
 Is the living room light on?
 ```
 
-→ It returns the correct state within 10s via `ha_get_state` or `ha_search_entities`.
-If HA is unreachable, it responds gracefully:
+Expected result:
 
-```
-Home Assistant is currently unavailable.
-```
+- Hermes should use `ha_search_entities` or `ha_get_state`.
+- The response should include the current state from Home Assistant.
+- If Home Assistant is unreachable, Hermes should say that it cannot reach HA rather than crashing.
 
----
-
-## P1 Voice Layer Exit Criteria
-
-| Signal | Target | How to verify |
-|--------|--------|---------------|
-| "Hey Hermes, turn off the living room light" | light off, TTS says "Done" | voice_listen → ha_call_service → voice_speak |
-| "What's the outside temperature?" | reads correct sensor value | voice_listen → ha_search_entities → ha_get_state → voice_speak |
-| Wake word false-positive rate | ≤1/hour in quiet room | voice_status → observe wake_word.listen() |
-| Engine swap | all config, no code changes | set HERMES_TTS_ENGINE=piper, restart, test again |
+If this fails, skip ahead to [Troubleshooting](#troubleshooting) before enabling write actions.
 
 ---
 
-## Roadmap
+## Step 5 — Install the Home Assistant custom integration
 
-| Phase | Name | Status |
-|-------|------|--------|
-| **P0** | Foundation | ✅ 23/23 tests, code reviewed by aeon-ultimate-xs, 5 criticals fixed |
-| **P1** | Voice Layer | ✅ Engines built (TTS/STT/Wake Word), pipeline orchestrator, 47/47 tests |
-| **P2** | HA Completeness | Bulk control, service auto-discovery, disambiguation, state events |
-| **P3** | Advanced Features | Observability, shadow-assist, user profiles |
-| **P4** | Packaging | HACS release, HA Add-on Docker image |
+### Option A — HACS custom repository
 
----
+1. In Home Assistant, open **HACS**.
+2. Open the three-dot menu → **Custom repositories**.
+3. Add this repository URL:
 
-## Running Tests
+   ```text
+   https://github.com/rusty4444/hermes-voice-ha-integration
+   ```
+
+4. Choose category **Integration**.
+5. Install **Hermes Voice Assistant**.
+6. Restart Home Assistant.
+
+### Option B — Manual install
+
+From this repo checkout, copy the custom component into HA's config directory:
 
 ```bash
-cd ~/dev/hermes/hermes-voice-ha-integration
-PYTHONPATH=. python -m pytest tests/ -v
+cp -R custom_components/hermes /config/custom_components/hermes
 ```
 
-All tests are fully mocked — no live HA instance required.
+If you are copying over SSH/Samba from another machine, the target is the Home Assistant config directory:
+
+```text
+/config/custom_components/hermes
+```
+
+Restart Home Assistant after copying.
 
 ---
 
-## License
+## Step 6 — Add the integration in Home Assistant
+
+1. Open **Settings → Devices & services**.
+2. Click **Add integration**.
+3. Search for **Hermes Voice Assistant**.
+4. Enter:
+   - **Hermes URL** — the URL HA should use to reach Hermes, for example `http://homeassistant.local:7860` if you run the add-on, `http://192.168.1.10:7860` if Hermes runs on another host, or your Hermes gateway/API URL.
+   - **Token** — bearer token for your Hermes endpoint. Use a placeholder value only if your endpoint is deliberately unauthenticated.
+5. Submit.
+
+The integration adds:
+
+- `hermes.hermes_command` service for HA-native service dispatch.
+- `hermes.voice_settings` service for voice/dashboard helpers.
+- Hermes status entities such as gateway status, uptime, interaction count, error count, HA WebSocket status, and voice readiness.
+
+---
+
+## Step 7 — Add the Lovelace action bar
+
+Add this card to a dashboard:
+
+```yaml
+type: custom:hermes-action-bar
+title: Hermes Voice
+show_status: true
+```
+
+If the browser shows “Custom element doesn’t exist”, hard refresh the dashboard and confirm `/hermes_static/hermes_action_bar.js` is registered by the integration/HACS install.
+
+---
+
+## Step 8 — Configure safety controls
+
+The plugin blocks dangerous service domains by default, including:
+
+- `shell_command`
+- `command_line`
+- `python_script`
+- `pyscript`
+- `hassio`
+- `rest_command`
+
+For extra safety, create an allow-list at:
+
+```text
+~/.hermes/ha_allow_list.json
+```
+
+Example:
+
+```json
+{
+  "enabled": true,
+  "rules": [
+    {"entity_id": "light.*", "services": ["turn_on", "turn_off", "toggle"]},
+    {"entity_id": "scene.*", "services": ["turn_on"]},
+    {"entity_id": "media_player.living_room", "services": ["play_media", "volume_set"]}
+  ]
+}
+```
+
+When enabled, service calls not matching the allow-list are denied.
+
+Audit logs are written as JSON lines to:
+
+```text
+~/.hermes/ha_audit.log
+```
+
+---
+
+## Step 9 — Optional voice setup
+
+Install optional voice dependencies in the Python environment that runs Hermes.
+
+### TTS options
+
+#### Edge TTS (easy, network-backed)
+
+```bash
+pip install edge-tts
+```
+
+Configure:
+
+```bash
+cat >> ~/.hermes/.env <<'EOF'
+HERMES_TTS_ENGINE=edge
+HERMES_TTS_VOICE=en-US-AriaNeural
+EOF
+```
+
+#### Piper TTS (offline)
+
+```bash
+pip install piper-tts
+```
+
+Download a Piper voice model from:
+
+```text
+https://huggingface.co/rhasspy/piper-voices
+```
+
+Configure:
+
+```bash
+cat >> ~/.hermes/.env <<'EOF'
+HERMES_TTS_ENGINE=piper
+HERMES_TTS_VOICE=en_US-lessac-medium
+EOF
+```
+
+### STT options
+
+#### faster-whisper
+
+```bash
+pip install faster-whisper sounddevice numpy
+```
+
+Configure:
+
+```bash
+cat >> ~/.hermes/.env <<'EOF'
+HERMES_STT_ENGINE=faster-whisper
+HERMES_STT_MODEL=tiny
+EOF
+```
+
+### Wake-word options
+
+#### Porcupine
+
+```bash
+pip install pvporcupine pyaudio
+```
+
+Create a Picovoice key, then add:
+
+```bash
+cat >> ~/.hermes/.env <<'EOF'
+HERMES_WAKE_WORD_ENGINE=porcupine
+HERMES_WAKE_WORD=computer
+PORCUPINE_ACCESS_KEY=replace-with-picovoice-key
+EOF
+```
+
+#### OpenWakeWord
+
+```bash
+pip install openwakeword pyaudio numpy
+```
+
+Configure:
+
+```bash
+cat >> ~/.hermes/.env <<'EOF'
+HERMES_WAKE_WORD_ENGINE=openwakeword
+EOF
+```
+
+### Media player output
+
+To route spoken responses through Home Assistant:
+
+```bash
+cat >> ~/.hermes/.env <<'EOF'
+HERMES_MEDIA_PLAYER=media_player.living_room
+EOF
+```
+
+> Note: `media_player.play_media` needs a URL/path Home Assistant and the target player can access. Local `file://` paths from the Hermes machine are not always playable by HA media players.
+
+---
+
+## Step 10 — Optional Home Assistant add-on
+
+This repository includes an early HA add-on scaffold in `addon/`. Use it if you want Hermes voice services to run under Home Assistant Supervisor instead of a separate machine.
+
+High-level flow:
+
+1. Add this repository as an add-on repository in **Settings → Add-ons → Add-on Store → Repositories**.
+2. Install **Hermes Voice Assistant**.
+3. Configure model/STT/TTS/wake-word settings in the add-on options.
+4. Start the add-on.
+5. Open the add-on logs and confirm Hermes starts cleanly.
+
+The add-on is intentionally marked `boot: manual` in `v0.0.1`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
+
+---
+
+## Verification checklist
+
+### Read-only test
+
+Ask Hermes:
+
+```text
+What Home Assistant entities can you see?
+```
+
+Expected: a grouped summary or list of entities.
+
+### State test
+
+Ask:
+
+```text
+Is the kitchen light on?
+```
+
+Expected: current state and attributes from HA.
+
+### Safe service-call test
+
+Ask:
+
+```text
+Turn on the kitchen light.
+```
+
+Expected:
+
+- Hermes calls `ha_call_service`.
+- The HA light changes state.
+- An audit-log entry is written if auditing is enabled.
+
+### Home Assistant service test
+
+In **Developer Tools → Services**, call:
+
+```yaml
+service: hermes.hermes_command
+data:
+  domain: light
+  service: turn_on
+  entity_id: light.kitchen
+```
+
+Expected: HA dispatches `light.turn_on`.
+
+### Voice status test
+
+Ask Hermes:
+
+```text
+Show voice status.
+```
+
+Expected: installed/uninstalled status for configured STT, TTS, wake-word engines.
+
+---
+
+## Development setup
+
+```bash
+cd ~/dev/hermes-voice-ha-integration
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+python -m pytest tests/ -q
+```
+
+Run static compilation:
+
+```bash
+python -m compileall -q custom_components plugins tests
+```
+
+Build package metadata:
+
+```bash
+python -m build --sdist --wheel
+```
+
+The tests are mocked and do not require a live Home Assistant instance.
+
+---
+
+## Troubleshooting
+
+### Hermes cannot see Home Assistant
+
+Check:
+
+```bash
+grep -E '^HASS_URL=|^HASS_TOKEN=' ~/.hermes/.env
+curl -H "Authorization: Bearer $HASS_TOKEN" "$HASS_URL/api/"
+```
+
+A healthy HA API response looks like:
+
+```json
+{"message":"API running."}
+```
+
+### Hermes says Home Assistant is unavailable
+
+Common causes:
+
+- Wrong `HASS_URL`.
+- Token copied incorrectly.
+- Home Assistant is using HTTPS with a certificate your machine does not trust.
+- Docker/add-on networking cannot resolve `homeassistant.local`.
+
+Try an IP address first:
+
+```bash
+HASS_URL=http://192.168.1.50:8123
+```
+
+### The Lovelace card does not load
+
+- Restart Home Assistant after installing the integration.
+- Clear browser cache or hard refresh.
+- Confirm `hacs.json` is at the repository root if using HACS.
+- Confirm the resource URL is `/hermes_static/hermes_action_bar.js`.
+
+### Voice commands transcribe but do not play audio
+
+- Confirm `HERMES_MEDIA_PLAYER` is a real `media_player.*` entity.
+- Confirm the player supports `play_media`.
+- If running Hermes outside HA, ensure HA can access generated audio. This may need an HTTP-accessible media bridge.
+
+### Service call denied
+
+Check:
+
+- The domain is not in the built-in blocked-domain list.
+- Your allow-list includes the target entity and service.
+- `~/.hermes/ha_audit.log` for the denial reason.
+
+---
+
+## Known limitations in `v0.0.1`
+
+- The voice stack is usable as engine wrappers and Hermes tools, but room-grade voice satellite UX still needs more work.
+- TTS audio delivery to HA media players may need an HTTP/media bridge depending on deployment topology.
+- The add-on scaffold may need environment-specific build adjustments before it is suitable as the primary install path for every HA setup.
+- The Lovelace action bar is intentionally minimal.
+- The HA custom integration and Hermes plugins are released together in one repo for now; future releases may split packaging by install target.
+
+---
+
+## Repository layout
+
+```text
+custom_components/hermes/      Home Assistant custom integration
+plugins/home_assistant/        Hermes plugin for HA tools and context
+plugins/voice_stack/           Hermes plugin for voice pipeline tools
+skills/homescript/             Homescript skill for smart-home commands
+addon/                         Home Assistant add-on scaffold
+tests/                         Mocked unit tests
+```
+
+---
+
+## Licence
 
 MIT — see [`LICENSE`](LICENSE).

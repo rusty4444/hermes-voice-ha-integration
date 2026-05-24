@@ -1,0 +1,6 @@
+include README.md LICENSE CHANGELOG.md hacs.json logo.png
+recursive-include custom_components *
+recursive-include addon *
+recursive-include plugins *.py *.yaml *.md
+recursive-include skills *
+recursive-include tests *.py

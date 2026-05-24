@@ -2,7 +2,25 @@
 
 All notable changes to `hermes-voice-ha-integration`.
 
-## [0.3.0] — 2026-05-23
+## [0.0.1] — 2026-05-24
+
+### Added
+- Initial public release of the Hermes × Home Assistant voice integration bundle.
+- Home Assistant custom integration with config flow, services, status sensors, and Lovelace action bar.
+- Hermes `home_assistant` plugin with entity search, state lookup, service calls, overview, service discovery, compound tools, bulk control, security gates, event watcher, and status sensors.
+- Hermes `voice_stack` plugin with wake-word, STT, TTS, and voice-pipeline orchestration wrappers.
+- Home Assistant add-on scaffold for running Hermes voice services alongside HA.
+
+### Fixed before release
+- Corrected HA integration unload lifecycle and sensor platform forwarding.
+- Fixed status sensor coordinator data mapping and setup signature.
+- Removed HA custom-component imports from Hermes plugin modules.
+- Fixed HA WebSocket event subscription auth/protocol.
+- Hardened TTS and wake-word engine edge cases.
+- Reworked the Lovelace action bar to use HA's `hass` setter and real `hermes.voice_settings` service calls.
+- Aligned release metadata to `0.0.1`.
+
+## [0.3.0] — 2026-05-23 (pre-release development)
 
 ### Added
 - **C1:** Sensor platform (`sensor.py`) — Hermes status metrics exposed as real HA entities (`sensor.hermes_gateway_status`, `sensor.ha_ws_connection`, etc.)

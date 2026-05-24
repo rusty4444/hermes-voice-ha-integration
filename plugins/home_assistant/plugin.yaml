@@ -1,5 +1,5 @@
 name: home_assistant
-version: 0.1.0
+version: 0.0.1
 description: "Home Assistant plugin for Hermes Agent — bidirectional entity sync, service routing, entity discovery, and compound smart-home tools."
 author: "Sam Russell <sam.russell@samprim.net>"
 hooks:
