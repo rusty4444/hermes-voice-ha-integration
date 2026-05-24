@@ -2,6 +2,14 @@
 
 All notable changes to `hermes-voice-ha-integration`.
 
+## [0.0.2] — 2026-05-24
+
+### Fixed
+- Fixed type errors in `ws_receiver.py` (replaced bare `Dict` with `dict`, `Mapping` from `typing`).
+- Wired `handle_voice_action` dispatch to `_handle_voice_enable/disable/status` from `plugins.voice_stack`.
+- Bumped all release metadata to `0.0.2` across `pyproject.toml`, `addon/config.yaml`, `manifest.json`, plugin YAMLs, tests, README, and egg-info.
+- Added `TestVoiceWebSocketReceiver` test class covering state_changed, unknown type rejection, voice action dispatch, unsupported action rejection, and auth enforcement.
+
 ## [0.0.1] — 2026-05-24
 
 ### Added

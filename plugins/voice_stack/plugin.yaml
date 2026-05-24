@@ -1,11 +1,33 @@
 name: voice_stack
-version: 0.0.1
+version: 0.0.2
 description: "Local voice pipeline: Wake Word → STT → Hermes LLM → TTS → HA media_player."
 author: "Sam Russell <sam.russell@samprim.net>"
 hooks:
   - on_session_start
 
 config:
+  # HA-facing WebSocket receiver
+  HERMES_HA_WS_ENABLED:
+    type: bool
+    default: true
+    description: Start the /api/hermes/ws receiver for the Home Assistant custom integration
+  HERMES_HA_WS_HOST:
+    type: str
+    default: 0.0.0.0
+    description: Listen host for the HA WebSocket receiver
+  HERMES_HA_WS_PORT:
+    type: int
+    default: 7860
+    description: Listen port for the HA WebSocket receiver
+  HERMES_HA_WS_PATH:
+    type: str
+    default: /api/hermes/ws
+    description: WebSocket path used by the HA custom integration
+  HERMES_HA_WS_TOKEN:
+    type: str
+    default: ""
+    description: Optional bearer token for HA WebSocket clients; falls back to API_SERVER_KEY/HERMES_API_KEY
+
   # Wake Word engine: porcupine, openwakeword, command
   HERMES_WAKE_WORD_ENGINE:
     type: str

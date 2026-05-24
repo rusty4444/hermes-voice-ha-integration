@@ -435,5 +435,15 @@ def register(ctx) -> None:
             handler=handler,
             emoji=emoji,
         )
+    # Start the HA-facing WebSocket receiver used by the Home Assistant
+    # custom integration at /api/hermes/ws. It is fire-and-forget: when the
+    # port is already occupied or aiohttp is unavailable, the warning is logged
+    # and normal tool registration still succeeds.
+    try:
+        from plugins.voice_stack.ws_receiver import start_ws_receiver
+        start_ws_receiver()
+    except Exception as exc:
+        logger.warning("Hermes HA WebSocket receiver did not start: %s", exc)
+
     # Run availability check in background so voice_status is accurate
     _init_engines()

@@ -12,7 +12,7 @@ This repository is a bundle of three pieces:
 | Hermes Home Assistant plugin | `plugins/home_assistant/` | Gives Hermes tools for entity search, state lookup, service calls, bulk control, scene/script discovery, and HA context. |
 | Hermes voice-stack plugin | `plugins/voice_stack/` | Adds wake-word, speech-to-text, text-to-speech, and voice pipeline helpers. |
 
-> **Release:** `v0.0.1` — first public release. Some packaging paths are intentionally simple and explicit so early users can install and debug each piece separately.
+> **Release:** `v0.0.2` — adds the HA-facing Hermes WebSocket receiver used by the dashboard action bar and custom integration.
 
 ---
 
@@ -153,6 +153,8 @@ Configure Home Assistant connection details for Hermes. The plugin reads standar
 cat >> ~/.hermes/.env <<'EOF'
 HASS_URL=http://homeassistant.local:8123
 HASS_TOKEN=replace-with-your-long-lived-access-token
+# Optional: require the HA custom integration to use this bearer token
+HERMES_HA_WS_TOKEN=replace-with-shared-hermes-token
 EOF
 ```
 
@@ -174,6 +176,15 @@ plugins:
 If your config already has a `plugins.enabled` list, add the two entries instead of replacing the whole section.
 
 Restart Hermes after changing plugins or `.env`.
+
+The `voice_stack` plugin starts a small HA-facing WebSocket receiver at:
+
+```text
+ws://<hermes-host>:7860/api/hermes/ws
+```
+
+Home Assistant connects to this endpoint through the **Hermes URL** you enter below. If `HERMES_HA_WS_TOKEN`, `API_SERVER_KEY`, or `HERMES_API_KEY` is set, the HA custom integration token must match it.
+
 
 ---
 
@@ -248,7 +259,7 @@ Restart Home Assistant after copying.
 3. Search for **Hermes Voice Assistant**.
 4. Enter:
    - **Hermes URL** — the URL HA should use to reach Hermes, for example `http://homeassistant.local:7860` if you run the add-on, `http://192.168.1.10:7860` if Hermes runs on another host, or your Hermes gateway/API URL.
-   - **Token** — bearer token for your Hermes endpoint. Use a placeholder value only if your endpoint is deliberately unauthenticated.
+   - **Token** — bearer token for your Hermes endpoint. If you set `HERMES_HA_WS_TOKEN`/`API_SERVER_KEY`/`HERMES_API_KEY`, enter the same value here. If your endpoint is deliberately unauthenticated, any placeholder works.
 5. Submit.
 
 The integration adds:
@@ -430,7 +441,7 @@ High-level flow:
 4. Start the add-on.
 5. Open the add-on logs and confirm Hermes starts cleanly.
 
-The add-on is intentionally marked `boot: manual` in `v0.0.1`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
+The add-on is intentionally marked `boot: manual` in `v0.0.2`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
 
 ---
 
@@ -577,13 +588,14 @@ Check:
 
 ---
 
-## Known limitations in `v0.0.1`
+## Known limitations in `v0.0.2`
 
 - The voice stack is usable as engine wrappers and Hermes tools, but room-grade voice satellite UX still needs more work.
 - TTS audio delivery to HA media players may need an HTTP/media bridge depending on deployment topology.
 - The add-on scaffold may need environment-specific build adjustments before it is suitable as the primary install path for every HA setup.
 - The Lovelace action bar is intentionally minimal.
 - The HA custom integration and Hermes plugins are released together in one repo for now; future releases may split packaging by install target.
+- The HA WebSocket receiver returns ack-only for `state_changed`; context ingestion (recent state history) is not implemented yet.
 
 ---
 

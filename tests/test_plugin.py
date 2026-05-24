@@ -308,7 +308,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "home_assistant"
-        assert data["version"] == "0.0.1"
+        assert data["version"] == "0.0.2"
         assert "on_session_start" in data["hooks"]
 
     def test_voice_stack_plugin_yaml_valid(self):
@@ -318,7 +318,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "voice_stack"
-        assert data["version"] == "0.0.1"
+        assert data["version"] == "0.0.2"
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +558,7 @@ class TestObservability:
         assert data["domain"] == "hermes"
         assert data["config_flow"] is True
         assert "iot_class" in data
-        assert data["version"] == "0.0.1"
+        assert data["version"] == "0.0.2"
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +575,7 @@ class TestAddonStructure:
         with open(config_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "Hermes Voice Assistant"
-        assert data["version"] == "0.0.1"
+        assert data["version"] == "0.0.2"
         assert data["slug"] == "hermes_voice"
         assert "arch" in data
         assert "amd64" in data["arch"] or "aarch64" in data["arch"]
@@ -792,12 +792,64 @@ class TestVoicePluginInit:
             data = yaml.safe_load(f)
         assert "config" in data
         assert "HERMES_WAKE_WORD_ENGINE" in data["config"]
-        assert data["version"] == "0.0.1"
+        assert "HERMES_HA_WS_PORT" in data["config"]
+        assert "HERMES_HA_WS_TOKEN" in data["config"]
+        assert data["version"] == "0.0.2"
 
 
-# ---------------------------------------------------------------------------
-# P3 Tests: services.py, frontend.py, sensor.py, is_available, TTS retry
-# ---------------------------------------------------------------------------
+
+class TestVoiceWebSocketReceiver:
+    """HA-facing /api/hermes/ws receiver tests."""
+
+    def test_state_changed_ack(self):
+        from plugins.voice_stack.ws_receiver import handle_ha_ws_payload
+        result = handle_ha_ws_payload({
+            "type": "state_changed",
+            "entity_id": "light.kitchen",
+            "state": "on",
+        })
+        assert result["ok"] is True
+        assert result["type"] == "ack"
+        assert result["entity_id"] == "light.kitchen"
+
+    def test_unknown_message_type_errors(self):
+        from plugins.voice_stack.ws_receiver import handle_ha_ws_payload
+        result = handle_ha_ws_payload({"type": "banana"})
+        assert result["ok"] is False
+        assert result["type"] == "error"
+        assert "Unsupported message type" in result["error"]
+
+    def test_voice_action_dispatches_status(self, monkeypatch):
+        from plugins.voice_stack import ws_receiver
+
+        monkeypatch.setattr(
+            "plugins.voice_stack._handle_voice_status",
+            lambda args: json.dumps({"ok": True, "ready": True}),
+        )
+        result = ws_receiver.handle_ha_ws_payload({"type": "voice_action", "action": "status"})
+        assert result["type"] == "voice_action_result"
+        assert result["ok"] is True
+        assert result["action"] == "status"
+        assert result["result"]["ready"] is True
+
+    def test_voice_action_rejects_unknown_action(self):
+        from plugins.voice_stack.ws_receiver import handle_ha_ws_payload
+        result = handle_ha_ws_payload({"type": "voice_action", "action": "explode"})
+        assert result["ok"] is False
+        assert "Unsupported voice action" in result["error"]
+
+    def test_auth_token_optional_and_enforced(self, monkeypatch):
+        from plugins.voice_stack.ws_receiver import _auth_ok
+
+        monkeypatch.delenv("HERMES_HA_WS_TOKEN", raising=False)
+        monkeypatch.delenv("API_SERVER_KEY", raising=False)
+        monkeypatch.delenv("HERMES_API_KEY", raising=False)
+        assert _auth_ok({}) is True
+
+        monkeypatch.setenv("HERMES_HA_WS_TOKEN", "secret")
+        assert _auth_ok({}) is False
+        assert _auth_ok({"Authorization": "Bearer secret"}) is True
+        assert _auth_ok({"Authorization": "Bearer wrong"}) is False
 
 class TestHermesServices:
     """Custom component services.py tests."""
@@ -958,6 +1010,7 @@ class TestCHANGELOG:
     def test_changelog_has_version_entries(self):
         cl = Path(__file__).parent.parent / "CHANGELOG.md"
         content = cl.read_text()
+        assert "## [0.0.2]" in content
         assert "## [0.0.1]" in content
         assert "## [0.2.0]" in content or "## [0.1.0]" in content
 

@@ -1,6 +1,6 @@
 [project]
 name = "hermes-voice-ha-integration"
-version = "0.0.1"
+version = "0.0.2"
 description = "Home Assistant voice stack integration for Hermes Agent"
 authors = [{name = "Sam Russell", email = "sam.russell@samprim.net"}]
 license = "MIT"

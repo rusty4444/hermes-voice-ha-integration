@@ -1,5 +1,5 @@
 name: "Hermes Voice Assistant"
-version: "0.0.1"
+version: "0.0.2"
 slug: "hermes_voice"
 description: "Voice assistant bridge for Home Assistant — wake word → STT → Hermes LLM → TTS → media_player. Can run local-first with local engines."
 url: "https://github.com/rusty4444/hermes-voice-ha-integration"
@@ -17,6 +17,7 @@ startup: application
 boot: manual
 options:
   ha_url: "http://homeassistant.local:8123"
+  hermes_api_token: ""
   hermes_llm_provider: "ollama"
   hermes_model: "qwen2.5:3b"
   hermes_llm_url: "http://ollama:11434/v1"
@@ -29,6 +30,7 @@ options:
   log_level: "info"
 schema:
   ha_url: str
+  hermes_api_token: str
   hermes_llm_provider: list(ollama|vllm|llama.cpp|openai|custom)
   hermes_model: str
   hermes_llm_url: url
