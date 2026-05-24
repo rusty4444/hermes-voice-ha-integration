@@ -295,7 +295,9 @@ The options flow has two pages.
 
 ### Page 2 — Voice pipeline
 
-![Hermes voice pipeline options](docs/config-flow-ui-mockup.html)
+![Hermes HA config/options UI — voice pipeline](docs/ha-config-flow-screenshot.png)
+
+*Mockup of the **Step 2 — Voice pipeline** options page. The **Step 1 — Allow-listed entities & SSL** page appears first, with an entity-ID editor and an SSL toggle.*
 
 | Field | What to enter |
 |---|---|
