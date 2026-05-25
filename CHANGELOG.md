@@ -7,12 +7,16 @@ All notable changes to `hermes-voice-ha-integration`.
 ### Added
 - Added structured service responses and runtime schemas for `hermes.hermes_command` and `hermes.voice_settings`.
 - Added tests for Home Assistant service response handling, voice settings queries, option wiring, and entry-scoped sensor IDs.
+- Added request ID correlation, status/health telemetry, connection/message counters, and protocol documentation for the HA→Hermes WebSocket receiver.
+- Added voice lifecycle tests covering richer HA action context, pipeline locking, cache directory creation, and categorized one-shot listen failures.
 
 ### Fixed
 - Passed configured TTS/STT/wake-word/media-player options into the Home Assistant `HermesBridge` instead of always using bridge defaults.
 - Preserved page-1 options-flow values when saving page-2 voice settings.
 - Normalized wake-word options to a list consistently before storing or forwarding them.
 - Scoped status sensor unique IDs by config entry to avoid collisions with multiple Hermes integrations.
+- Created voice-cache directories before temporary recordings and returned stable `voice_listen` error categories for invalid durations, unavailable engines, recording failures, no speech, and transcription failures.
+- Reused the voice pipeline lock across enable/disable paths so concurrent lifecycle calls cannot create multiple active pipeline instances.
 
 ## [0.0.5] — 2026-05-25
 

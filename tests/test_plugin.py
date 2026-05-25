@@ -870,6 +870,47 @@ class TestVoiceWebSocketReceiver:
         assert result["ok"] is False
         assert "Unsupported voice action" in result["error"]
 
+    def test_response_preserves_request_id_and_status_payload(self, monkeypatch):
+        from plugins.voice_stack import ws_receiver
+
+        monkeypatch.setenv("HERMES_HA_WS_TOKEN", "secret")
+        result = ws_receiver.handle_ha_ws_payload({"id": "abc-123", "type": "status"})
+
+        assert result["id"] == "abc-123"
+        assert result["type"] == "status"
+        assert result["ok"] is True
+        assert result["auth_required"] is True
+        assert "uptime_seconds" in result
+        assert "active_connections" in result
+        assert result["message_counters"]["status"] >= 1
+
+    def test_voice_action_forwards_rich_context_args(self, monkeypatch):
+        from plugins.voice_stack import ws_receiver
+
+        seen = {}
+        monkeypatch.setattr(
+            "plugins.voice_stack._handle_voice_enable",
+            lambda args: seen.setdefault("args", args) or json.dumps({"ok": True}),
+        )
+
+        result = ws_receiver.handle_ha_ws_payload({
+            "id": 42,
+            "type": "voice_action",
+            "action": "enable",
+            "media_player_entity": "media_player.kitchen",
+            "entry_id": "entry-1",
+            "args": {"duration": 4},
+        })
+
+        assert result["id"] == 42
+        assert result["ok"] is True
+        assert seen["args"] == {
+            "id": 42,
+            "media_player_entity": "media_player.kitchen",
+            "entry_id": "entry-1",
+            "duration": 4,
+        }
+
     def test_auth_token_optional_and_enforced(self, monkeypatch):
         from plugins.voice_stack.ws_receiver import _auth_ok
 
@@ -882,6 +923,7 @@ class TestVoiceWebSocketReceiver:
         assert _auth_ok({}) is False
         assert _auth_ok({"Authorization": "Bearer secret"}) is True
         assert _auth_ok({"Authorization": "Bearer wrong"}) is False
+
 
 class TestHermesServices:
     """Custom component services.py tests."""
@@ -998,6 +1040,120 @@ class TestTTSRetry:
         # Second call succeeds
         assert tts.synthesize("hello") == "/tmp/test.mp3"
         assert call_count[0] == 2
+
+
+class TestVoiceLifecycleRobustness:
+    """Voice lifecycle locking and one-shot listening robustness."""
+
+    def test_voice_enable_disable_uses_single_pipeline_instance(self, monkeypatch):
+        import plugins.voice_stack as voice_stack
+
+        class FakeState:
+            enabled = False
+            def to_dict(self):
+                return {"enabled": self.enabled}
+
+        class FakePipeline:
+            instances = []
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.state = FakeState()
+                self.available = True
+                self.stopped = False
+                FakePipeline.instances.append(self)
+            def start(self):
+                self.state.enabled = True
+                return True
+            def stop(self):
+                self.stopped = True
+                self.state.enabled = False
+
+        monkeypatch.setattr("plugins.voice_stack.pipeline.VoicePipeline", FakePipeline)
+        monkeypatch.setattr(voice_stack, "_ensure_voice_ready", lambda: True)
+        monkeypatch.setattr(voice_stack, "_wake_word_engine", object())
+        monkeypatch.setattr(voice_stack, "_stt_engine", object())
+        monkeypatch.setattr(voice_stack, "_tts_engine", object())
+        voice_stack._voice_ready.set()
+        voice_stack._pipeline = None
+        try:
+            first = json.loads(voice_stack._handle_voice_enable({"media_player_entity": "media_player.kitchen"}))
+            second = json.loads(voice_stack._handle_voice_enable({"media_player_entity": "media_player.kitchen"}))
+            assert first["ok"] is True
+            assert second["ok"] is True
+            assert "already enabled" in second["message"]
+            assert len(FakePipeline.instances) == 1
+            assert FakePipeline.instances[0].kwargs["media_player_entity"] == "media_player.kitchen"
+
+            disabled = json.loads(voice_stack._handle_voice_disable({}))
+            assert disabled["ok"] is True
+            assert FakePipeline.instances[0].stopped is True
+            assert voice_stack._pipeline is None
+        finally:
+            voice_stack._pipeline = None
+            voice_stack._voice_ready.clear()
+
+    def test_voice_listen_creates_cache_dir_and_returns_no_speech_category(self, monkeypatch, tmp_path):
+        import plugins.voice_stack as voice_stack
+
+        class FakeSTT:
+            def available(self):
+                return True
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(voice_stack, "_ensure_voice_ready", lambda: True)
+        monkeypatch.setattr(voice_stack, "_stt_engine", FakeSTT())
+        monkeypatch.setattr("plugins.voice_stack.pipeline.record_audio", lambda path, duration: False)
+        voice_stack._voice_ready.set()
+        try:
+            result = json.loads(voice_stack._handle_voice_listen({"duration": 1}))
+        finally:
+            voice_stack._voice_ready.clear()
+
+        assert result["ok"] is False
+        assert result["error_category"] == "no_speech"
+        assert (tmp_path / ".hermes" / "voice_cache").is_dir()
+
+    def test_voice_listen_reports_recording_failure_category(self, monkeypatch, tmp_path):
+        import plugins.voice_stack as voice_stack
+        from plugins.voice_stack.pipeline import VoiceRecordingError
+
+        class FakeSTT:
+            def available(self):
+                return True
+
+        def boom(path, duration):
+            raise VoiceRecordingError("microphone unavailable")
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(voice_stack, "_ensure_voice_ready", lambda: True)
+        monkeypatch.setattr(voice_stack, "_stt_engine", FakeSTT())
+        monkeypatch.setattr("plugins.voice_stack.pipeline.record_audio", boom)
+        voice_stack._voice_ready.set()
+        try:
+            result = json.loads(voice_stack._handle_voice_listen({"duration": 1}))
+        finally:
+            voice_stack._voice_ready.clear()
+
+        assert result["ok"] is False
+        assert result["error_category"] == "recording_failed"
+        assert "microphone unavailable" in result["error"]
+
+    def test_voice_listen_rejects_invalid_duration(self, monkeypatch):
+        import plugins.voice_stack as voice_stack
+
+        class FakeSTT:
+            def available(self):
+                return True
+
+        monkeypatch.setattr(voice_stack, "_ensure_voice_ready", lambda: True)
+        monkeypatch.setattr(voice_stack, "_stt_engine", FakeSTT())
+        voice_stack._voice_ready.set()
+        try:
+            result = json.loads(voice_stack._handle_voice_listen({"duration": "banana"}))
+        finally:
+            voice_stack._voice_ready.clear()
+
+        assert result == {"ok": False, "error": "duration must be numeric", "error_category": "invalid_duration"}
 
 
 class TestHomescriptSkill:

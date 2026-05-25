@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional
 
 try:
@@ -35,6 +36,54 @@ DEFAULT_WS_PATH = "/api/hermes/ws"
 
 _WS_SERVER: Optional["HermesHAWebSocketServer"] = None
 _WS_LOCK = threading.Lock()
+_START_TIME = time.monotonic()
+_MESSAGE_COUNTERS: dict[str, int] = {}
+_COUNTER_LOCK = threading.Lock()
+_VOICE_ACTION_RESERVED_KEYS = {"type", "action", "args"}
+
+
+def _record_message(msg_type: str) -> None:
+    """Track receiver message counts for health/status responses."""
+    key = msg_type or "<missing>"
+    with _COUNTER_LOCK:
+        _MESSAGE_COUNTERS[key] = _MESSAGE_COUNTERS.get(key, 0) + 1
+
+
+def _message_counters_snapshot() -> dict[str, int]:
+    with _COUNTER_LOCK:
+        return dict(_MESSAGE_COUNTERS)
+
+
+def receiver_status(server: Optional["HermesHAWebSocketServer"] = None) -> dict[str, Any]:
+    """Return process-local receiver health data safe for HA status probes."""
+    active_connections = 0
+    total_connections = 0
+    running = False
+    bound: dict[str, Any] = {}
+    target = server or _WS_SERVER
+    if target is not None:
+        active_connections = target.active_connections
+        total_connections = target.total_connections
+        running = target.running
+        bound = {"host": target.host, "port": target.port, "path": target.path}
+    return {
+        "ok": True,
+        "service": "hermes-ha-ws",
+        "running": running,
+        "uptime_seconds": round(time.monotonic() - _START_TIME, 1),
+        "auth_required": bool(_configured_token()),
+        "active_connections": active_connections,
+        "total_connections": total_connections,
+        "message_counters": _message_counters_snapshot(),
+        **bound,
+    }
+
+
+def _with_request_id(payload: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    """Preserve caller request IDs for HA-side correlation."""
+    if "id" in payload and "id" not in response:
+        response = {**response, "id": payload["id"]}
+    return response
 
 
 def _json_loads_maybe(value: Any) -> dict[str, Any]:
@@ -84,8 +133,9 @@ def handle_voice_action(payload: dict[str, Any]) -> dict[str, Any]:
     """
     action = str(payload.get("action", "")).strip().lower()
     args = dict(payload.get("args") or {})
-    if payload.get("media_player_entity") and "media_player_entity" not in args:
-        args["media_player_entity"] = payload["media_player_entity"]
+    for key, value in payload.items():
+        if key not in _VOICE_ACTION_RESERVED_KEYS and key not in args:
+            args[key] = value
 
     from plugins.voice_stack import (
         _handle_voice_disable,
@@ -118,25 +168,29 @@ def handle_voice_action(payload: dict[str, Any]) -> dict[str, Any]:
 def handle_ha_ws_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Handle one JSON payload from Home Assistant."""
     msg_type = str(payload.get("type", "")).strip().lower()
+    _record_message(msg_type)
 
     if msg_type == "voice_action":
         result = handle_voice_action(payload)
-        return {"type": "voice_action_result", **result}
+        return _with_request_id(payload, {"type": "voice_action_result", **result})
 
     if msg_type == "state_changed":
         # P0 receiver behaviour: acknowledge state pushes so HA knows Hermes
         # accepted the event. Context ingestion can be layered on this later.
-        return {
+        return _with_request_id(payload, {
             "type": "ack",
             "ok": True,
             "received": "state_changed",
             "entity_id": payload.get("entity_id"),
-        }
+        })
 
-    if msg_type in {"ping", "status"}:
-        return {"type": "pong", "ok": True}
+    if msg_type == "ping":
+        return _with_request_id(payload, {"type": "pong", "ok": True})
 
-    return {"type": "error", "ok": False, "error": f"Unsupported message type: {msg_type or '<missing>'}"}
+    if msg_type == "status":
+        return _with_request_id(payload, {"type": "status", **receiver_status()})
+
+    return _with_request_id(payload, {"type": "error", "ok": False, "error": f"Unsupported message type: {msg_type or '<missing>'}"})
 
 
 class HermesHAWebSocketServer:
@@ -153,6 +207,28 @@ class HermesHAWebSocketServer:
         self._runner: Optional["aiohttp_web.AppRunner"] = None
         self._started = threading.Event()
         self._stopped = threading.Event()
+        self._active_connections = 0
+        self._total_connections = 0
+        self._connections_lock = threading.Lock()
+
+    @property
+    def active_connections(self) -> int:
+        with self._connections_lock:
+            return self._active_connections
+
+    @property
+    def total_connections(self) -> int:
+        with self._connections_lock:
+            return self._total_connections
+
+    def _connection_opened(self) -> None:
+        with self._connections_lock:
+            self._active_connections += 1
+            self._total_connections += 1
+
+    def _connection_closed(self) -> None:
+        with self._connections_lock:
+            self._active_connections = max(0, self._active_connections - 1)
 
     @property
     def running(self) -> bool:
@@ -221,7 +297,7 @@ class HermesHAWebSocketServer:
 
     async def _handle_health(self, request: "aiohttp_web.Request") -> "aiohttp_web.Response":
         assert web is not None
-        return web.json_response({"ok": True, "service": "hermes-ha-ws"})
+        return web.json_response({"type": "status", **receiver_status(self)})
 
     async def _handle_ws(self, request: "aiohttp_web.Request") -> "aiohttp_web.WebSocketResponse":
         assert web is not None
@@ -231,21 +307,25 @@ class HermesHAWebSocketServer:
 
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
+        self._connection_opened()
         await ws.send_json({"type": "hello", "ok": True, "service": "hermes-ha-ws"})
 
-        async for msg in ws:
-            if msg.type == WSMsgType.TEXT:
-                try:
-                    payload = json.loads(msg.data)
-                    if not isinstance(payload, dict):
-                        raise ValueError("payload must be a JSON object")
-                    response = handle_ha_ws_payload(payload)
-                except Exception as exc:
-                    response = {"type": "error", "ok": False, "error": str(exc)}
-                await ws.send_json(response)
-            elif msg.type == WSMsgType.ERROR:
-                logger.debug("HA WebSocket closed with error: %s", ws.exception())
-                break
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    try:
+                        payload = json.loads(msg.data)
+                        if not isinstance(payload, dict):
+                            raise ValueError("payload must be a JSON object")
+                        response = handle_ha_ws_payload(payload)
+                    except Exception as exc:
+                        response = {"type": "error", "ok": False, "error": str(exc)}
+                    await ws.send_json(response)
+                elif msg.type == WSMsgType.ERROR:
+                    logger.debug("HA WebSocket closed with error: %s", ws.exception())
+                    break
+        finally:
+            self._connection_closed()
         return ws
 
 

@@ -30,6 +30,7 @@ The Python wheel is intentionally plugin-focused. Use the GitHub tag or source d
 - Let Hermes call Home Assistant services: lights, switches, scenes, scripts, climate, media players, and more.
 - Use safety controls: blocked service domains, optional allow-list, and JSON-line audit logging.
 - Expose Hermes health into HA as status sensors.
+- Bridge HA-originated voice lifecycle events over the documented WebSocket protocol (`docs/ws-protocol.md`).
 - Add a small Lovelace action bar to dashboards.
 - Build toward local voice control with configurable STT/TTS/wake-word engines.
 
