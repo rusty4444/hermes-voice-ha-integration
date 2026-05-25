@@ -308,7 +308,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "home_assistant"
-        assert data["version"] == "0.0.3"
+        assert data["version"] == "0.0.4"
         assert "on_session_start" in data["hooks"]
 
     def test_voice_stack_plugin_yaml_valid(self):
@@ -318,7 +318,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "voice_stack"
-        assert data["version"] == "0.0.3"
+        assert data["version"] == "0.0.4"
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +558,7 @@ class TestObservability:
         assert data["domain"] == "hermes"
         assert data["config_flow"] is True
         assert "iot_class" in data
-        assert data["version"] == "0.0.3"
+        assert data["version"] == "0.0.4"
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +575,7 @@ class TestAddonStructure:
         with open(config_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "Hermes Voice Assistant"
-        assert data["version"] == "0.0.3"
+        assert data["version"] == "0.0.4"
         assert data["slug"] == "hermes_voice"
         assert "arch" in data
         assert "amd64" in data["arch"] or "aarch64" in data["arch"]
@@ -794,7 +794,7 @@ class TestVoicePluginInit:
         assert "HERMES_WAKE_WORD_ENGINE" in data["config"]
         assert "HERMES_HA_WS_PORT" in data["config"]
         assert "HERMES_HA_WS_TOKEN" in data["config"]
-        assert data["version"] == "0.0.3"
+        assert data["version"] == "0.0.4"
 
 
 
@@ -1005,6 +1005,10 @@ class TestLogo:
             "icon.png",
             "custom_components/hermes/icon.png",
             "custom_components/hermes/logo.png",
+            "custom_components/hermes/brand/icon.png",
+            "custom_components/hermes/brand/logo.png",
+            "custom_components/hermes/brand/icon@2x.png",
+            "custom_components/hermes/brand/logo@2x.png",
         ):
             asset = root / rel
             assert asset.exists(), f"missing brand asset: {rel}"
@@ -1021,7 +1025,7 @@ class TestCHANGELOG:
     def test_changelog_has_version_entries(self):
         cl = Path(__file__).parent.parent / "CHANGELOG.md"
         content = cl.read_text()
-        assert "## [0.0.3]" in content
+        assert "## [0.0.4]" in content
         assert "## [0.0.1]" in content
         assert "## [0.2.0]" in content or "## [0.1.0]" in content
 
