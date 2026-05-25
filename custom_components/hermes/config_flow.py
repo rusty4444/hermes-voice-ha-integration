@@ -7,6 +7,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigEntry, OptionsFlow
 from homeassistant.const import CONF_URL, CONF_TOKEN
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
 
 from .const import (
     DOMAIN,
@@ -72,8 +73,13 @@ class HermesConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required(CONF_URL, default="http://homeassistant.local:7860"): str,
-                vol.Required(CONF_TOKEN): str,
+                vol.Required(CONF_URL, default="http://hermes.local:7860"):
+                    selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+                    ),
+                vol.Required(CONF_TOKEN): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
             }),
             errors=errors,
         )
