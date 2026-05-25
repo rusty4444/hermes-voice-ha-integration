@@ -19,16 +19,13 @@ from .const import (
     CONF_WAKE_WORD, DEFAULT_WAKE_WORD,
     CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER,
     TTS_ENGINE_OPTIONS, STT_ENGINE_OPTIONS, WAKE_WORD_ENGINE_OPTIONS,
+    normalize_list, normalize_wake_word,
 )
 
 
 def _parse_list(value) -> list[str]:
     """Accept list, tuple, or newline/comma-separated string."""
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple)):
-        return [str(v).strip() for v in value if str(v).strip()]
-    return [p.strip() for p in str(value).replace("\n", ",").split(",") if p.strip()]
+    return normalize_list(value)
 
 
 def _parse_entity_filter(value) -> list[str]:
@@ -38,7 +35,7 @@ def _parse_entity_filter(value) -> list[str]:
 
 def _parse_wake_word(value) -> list[str]:
     """Wake words can be a single string or comma-separated list."""
-    return _parse_list(value)
+    return normalize_wake_word(value)
 
 
 class HermesConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -99,7 +96,7 @@ def _default_options() -> dict:
         CONF_STT_ENGINE: DEFAULT_STT_ENGINE,
         CONF_STT_MODEL: DEFAULT_STT_MODEL,
         CONF_WAKE_WORD_ENGINE: DEFAULT_WAKE_WORD_ENGINE,
-        CONF_WAKE_WORD: DEFAULT_WAKE_WORD,
+        CONF_WAKE_WORD: normalize_wake_word(DEFAULT_WAKE_WORD),
         CONF_MEDIA_PLAYER: DEFAULT_MEDIA_PLAYER,
     }
 
@@ -150,7 +147,6 @@ class HermesOptionsFlow(OptionsFlow):
         current = dict(self.config_entry.options or {})
         if self._pending:
             current.update(self._pending)
-            self._pending = None
 
         if user_input is not None:
             tts_engine = str(
@@ -192,7 +188,7 @@ class HermesOptionsFlow(OptionsFlow):
         current_tts_engine = current.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)
         current_stt_engine = current.get(CONF_STT_ENGINE, DEFAULT_STT_ENGINE)
         current_ww_engine = current.get(CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE)
-        current_ww = ", ".join(current.get(CONF_WAKE_WORD, DEFAULT_WAKE_WORD))
+        current_ww = ", ".join(normalize_wake_word(current.get(CONF_WAKE_WORD, DEFAULT_WAKE_WORD)))
         current_mp = current.get(CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER)
 
         return self.async_show_form(

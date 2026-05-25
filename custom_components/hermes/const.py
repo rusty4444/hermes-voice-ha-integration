@@ -31,6 +31,22 @@ DEFAULT_STT_MODEL = "tiny"
 DEFAULT_WAKE_WORD_ENGINE = "porcupine"
 DEFAULT_WAKE_WORD = "computer"
 DEFAULT_MEDIA_PLAYER = ""
+DEFAULT_QUERY_LIMIT = 50
+
+
+def normalize_list(value: object) -> list[str]:
+    """Normalize list-like option values from HA forms and stored options."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [part.strip() for part in str(value).replace("\n", ",").split(",") if part.strip()]
+
+
+def normalize_wake_word(value: object = DEFAULT_WAKE_WORD) -> list[str]:
+    """Normalize wake-word config to a list of keyword strings."""
+    parsed = normalize_list(value)
+    return parsed or [DEFAULT_WAKE_WORD]
 
 # Valid enum values (used for select dropdowns)
 TTS_ENGINE_OPTIONS = ["edge", "piper", "elevenlabs", "openai"]

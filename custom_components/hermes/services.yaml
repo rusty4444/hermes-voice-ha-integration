@@ -3,40 +3,72 @@
 
 hermes_command:
   name: Hermes command
-  description: Execute a Home Assistant service call routed from Hermes.
+  description: Execute a Home Assistant service call routed from Hermes. Returns structured success/error data when called via APIs that request service responses.
   fields:
     domain:
       name: Domain
-      description: The service domain (e.g., light).
+      description: The service domain (for example, light).
       required: true
       selector:
         text: {}
     service:
       name: Service
-      description: The service name (e.g., turn_on).
+      description: The service name (for example, turn_on).
       required: true
       selector:
         text: {}
     entity_id:
       name: Entity ID
-      description: Optional entity_id to target.
-      required: false
-      selector:
-        text: {}
-    data:
-      name: Data
-      description: Additional service data (JSON).
+      description: Optional entity_id or entity_id list to target.
       required: false
       selector:
         object: {}
+    area_id:
+      name: Area ID
+      description: Optional area_id or area_id list to target.
+      required: false
+      selector:
+        object: {}
+    device_id:
+      name: Device ID
+      description: Optional device_id or device_id list to target.
+      required: false
+      selector:
+        object: {}
+    target:
+      name: Target
+      description: Optional raw Home Assistant target object. entity_id, area_id, and device_id fields are merged into this target.
+      required: false
+      selector:
+        object: {}
+    data:
+      name: Data
+      description: Additional service data.
+      required: false
+      selector:
+        object: {}
+    blocking:
+      name: Wait for completion
+      description: Wait for the underlying Home Assistant service call to complete before returning a response.
+      required: false
+      default: true
+      selector:
+        boolean: {}
+    return_response:
+      name: Return service response
+      description: Request response data from response-capable Home Assistant services.
+      required: false
+      default: false
+      selector:
+        boolean: {}
 
 voice_settings:
   name: Voice settings
-  description: Send a voice action to Hermes or query HA entities for voice pipeline configuration.
+  description: Send a voice action to Hermes or query HA entities for voice pipeline configuration. Returns action results or entity matches when service responses are requested.
   fields:
     action:
       name: Action
-      description: Voice action to request.
+      description: Voice action to request. `status` returns local bridge status without relaying a command.
       required: false
       selector:
         select:
@@ -44,9 +76,45 @@ voice_settings:
             - enable
             - disable
             - status
+    entry_id:
+      name: Config entry ID
+      description: Optional Hermes config entry ID to target when multiple Hermes integrations are configured.
+      required: false
+      selector:
+        text: {}
+    media_player_entity:
+      name: Media player entity
+      description: Optional media_player entity passed to Hermes when enabling voice output.
+      required: false
+      selector:
+        entity:
+          domain: media_player
+    args:
+      name: Extra voice action arguments
+      description: Optional argument object forwarded to the Hermes voice stack.
+      required: false
+      selector:
+        object: {}
     query:
       name: Query
       description: Entity search query used when no action is supplied.
       required: false
       selector:
         text: {}
+    limit:
+      name: Result limit
+      description: Maximum entity matches to return for query mode.
+      required: false
+      default: 50
+      selector:
+        number:
+          min: 1
+          max: 500
+          mode: box
+    include_attributes:
+      name: Include attributes
+      description: Include entity attributes in query responses.
+      required: false
+      default: true
+      selector:
+        boolean: {}
