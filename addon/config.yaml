@@ -1,5 +1,5 @@
 name: "Hermes Voice Assistant"
-version: "0.0.4"
+version: "0.0.5"
 slug: "hermes_voice"
 description: "Voice assistant bridge for Home Assistant — wake word → STT → Hermes LLM → TTS → media_player. Can run local-first with local engines."
 url: "https://github.com/rusty4444/hermes-voice-ha-integration"
