@@ -2,6 +2,12 @@
 
 All notable changes to `hermes-voice-ha-integration`.
 
+## [0.0.5] — 2026-05-25
+
+### Fixed
+- Added `custom_components/hermes/translations/en.json` so Home Assistant has runtime translations for the config-flow page instead of showing raw `url` and `token` field names.
+- Expanded the setup-page title, description, labels, and field help to state that the URL is the Hermes host/container endpoint and the token is the Hermes API/WebSocket token, not a Home Assistant URL or long-lived access token.
+
 ## [0.0.4] — 2026-05-25
 
 ### Fixed

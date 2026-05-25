@@ -308,7 +308,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "home_assistant"
-        assert data["version"] == "0.0.4"
+        assert data["version"] == "0.0.5"
         assert "on_session_start" in data["hooks"]
 
     def test_voice_stack_plugin_yaml_valid(self):
@@ -318,7 +318,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "voice_stack"
-        assert data["version"] == "0.0.4"
+        assert data["version"] == "0.0.5"
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +558,39 @@ class TestObservability:
         assert data["domain"] == "hermes"
         assert data["config_flow"] is True
         assert "iot_class" in data
-        assert data["version"] == "0.0.4"
+        assert data["version"] == "0.0.5"
+
+    def test_config_flow_translations_are_packaged_for_ha_ui(self):
+        """HA must ship runtime translations, not only source strings.json."""
+        root = Path(__file__).parent.parent / "custom_components" / "hermes"
+        strings = json.loads((root / "strings.json").read_text())
+        translations_path = root / "translations" / "en.json"
+        assert translations_path.exists(), "missing HA runtime translation file"
+        translations = json.loads(translations_path.read_text())
+        assert translations == strings
+
+    def test_config_flow_copy_explains_url_and_token_on_initial_page(self):
+        root = Path(__file__).parent.parent / "custom_components" / "hermes"
+        translations = json.loads((root / "translations" / "en.json").read_text())
+        step = translations["config"]["step"]["user"]
+        rendered_copy = "\n".join(
+            [
+                step["title"],
+                step["description"],
+                *step["data"].values(),
+                *step["data_description"].values(),
+            ]
+        )
+        for required in (
+            "not your Home Assistant URL",
+            "not a Home Assistant long-lived access token",
+            "HERMES_HA_WS_TOKEN",
+            "API_SERVER_KEY",
+            "Hermes host/container",
+            "http://hermes.local:7860",
+            "Home Assistant connects",
+        ):
+            assert required in rendered_copy
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +607,7 @@ class TestAddonStructure:
         with open(config_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "Hermes Voice Assistant"
-        assert data["version"] == "0.0.4"
+        assert data["version"] == "0.0.5"
         assert data["slug"] == "hermes_voice"
         assert "arch" in data
         assert "amd64" in data["arch"] or "aarch64" in data["arch"]
@@ -794,7 +826,7 @@ class TestVoicePluginInit:
         assert "HERMES_WAKE_WORD_ENGINE" in data["config"]
         assert "HERMES_HA_WS_PORT" in data["config"]
         assert "HERMES_HA_WS_TOKEN" in data["config"]
-        assert data["version"] == "0.0.4"
+        assert data["version"] == "0.0.5"
 
 
 
@@ -1025,7 +1057,7 @@ class TestCHANGELOG:
     def test_changelog_has_version_entries(self):
         cl = Path(__file__).parent.parent / "CHANGELOG.md"
         content = cl.read_text()
-        assert "## [0.0.4]" in content
+        assert "## [0.0.5]" in content
         assert "## [0.0.1]" in content
         assert "## [0.2.0]" in content or "## [0.1.0]" in content
 
