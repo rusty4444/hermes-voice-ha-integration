@@ -12,6 +12,14 @@ This repository is a bundle of three pieces:
 | Hermes Home Assistant plugin | `plugins/home_assistant/` | Gives Hermes tools for entity search, state lookup, service calls, bulk control, scene/script discovery, and HA context. |
 | Hermes voice-stack plugin | `plugins/voice_stack/` | Adds wake-word, speech-to-text, text-to-speech, and voice pipeline helpers. |
 
+| Install target | Mechanism | Artifact/source | Current maturity |
+|---|---|---|---|
+| HA custom integration | HACS custom repository or manual copy | GitHub tag/source distribution, `custom_components/hermes/` | Supported |
+| Hermes plugins | Copy into `~/.hermes/plugins` or install the Python wheel | Wheel/source distribution, `plugins/*` | Supported |
+| HA add-on | Home Assistant Supervisor add-on scaffold | GitHub tag/source distribution, `addon/` | Early scaffold |
+
+The Python wheel is intentionally plugin-focused. Use the GitHub tag or source distribution for the full HACS/custom-component/add-on bundle.
+
 > **Release:** `v0.0.5` — ships runtime Home Assistant translations so the setup form explains exactly what the Hermes URL and token fields mean.
 
 ---
@@ -486,7 +494,7 @@ EOF
 
 ---
 
-## Step 10 — Optional Home Assistant add-on
+## Step 11 — Optional Home Assistant add-on
 
 This repository includes an early HA add-on scaffold in `addon/`. Use it if you want Hermes voice services to run under Home Assistant Supervisor instead of a separate machine.
 
@@ -585,6 +593,14 @@ Build package metadata:
 ```bash
 python -m build --sdist --wheel
 ```
+
+Run release integrity checks:
+
+```bash
+python scripts/check_release_integrity.py
+```
+
+See [`docs/release.md`](docs/release.md) for the full release checklist and artifact semantics.
 
 The tests are mocked and do not require a live Home Assistant instance.
 
