@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
+      - name: Compile Python files
+        run: python -m compileall -q custom_components plugins tests scripts
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Build package artifacts
+        run: python -m build --sdist --wheel
+
+      - name: Check release integrity
+        run: python scripts/check_release_integrity.py
+
+      - name: Check release tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python scripts/check_release_integrity.py --tag "${GITHUB_REF_NAME}"
+
+      - name: Upload built artifacts
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: dist/*
