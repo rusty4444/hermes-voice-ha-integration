@@ -23,7 +23,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE, CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL, CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE, CONF_WAKE_WORD, DEFAULT_WAKE_WORD, CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER, normalize_wake_word
+from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE, CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL, CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE, CONF_WAKE_WORD, DEFAULT_WAKE_WORD, CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER, normalize_list, normalize_wake_word
 from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     url = entry.data.get(CONF_URL, "http://localhost:8123")
     token = entry.data.get(CONF_TOKEN, "")
     options = entry.options or {}
-    entity_filter = options.get(CONF_ENTITY_FILTER, entry.data.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER))
+    entity_filter = normalize_list(options.get(CONF_ENTITY_FILTER, entry.data.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER)))
     verify_ssl = options.get(CONF_VERIFY_SSL, entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
 
     bridge = HermesBridge(
@@ -69,15 +69,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Connect WebSocket to Hermes Agent
     await bridge.async_connect()
 
-    # Register state-change listener
-    tracked_entities = entity_filter or None
-    entry.async_on_unload(
-        async_track_state_change_event(
-            hass,
-            tracked_entities,
-            bridge.on_state_change,
+    # Register state-change listener. Home Assistant does not accept None as
+    # entity_ids; when no filter is configured, listen for all state_changed
+    # events directly on the event bus.
+    if entity_filter:
+        entry.async_on_unload(
+            async_track_state_change_event(
+                hass,
+                entity_filter,
+                bridge.on_state_change,
+            )
         )
-    )
+    else:
+        entry.async_on_unload(hass.bus.async_listen("state_changed", bridge.on_state_change))
 
     # Register HA services exposed to Hermes
     await bridge.async_register_services()

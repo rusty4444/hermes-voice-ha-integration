@@ -42,6 +42,14 @@ def test_bridge_normalizes_wake_word_and_forwards_voice_args() -> None:
     assert '**dict(command.get("args") or {})' in source
 
 
+def test_empty_entity_filter_tracks_all_state_changes_without_none() -> None:
+    source = _source("custom_components/hermes/__init__.py")
+    assert "entity_filter = normalize_list(" in source
+    assert "if entity_filter:" in source
+    assert 'hass.bus.async_listen("state_changed", bridge.on_state_change)' in source
+    assert "tracked_entities = entity_filter or None" not in source
+
+
 def test_options_flow_preserves_pending_init_values_until_final_create() -> None:
     source = _source("custom_components/hermes/config_flow.py")
     voice_method = source.split("async def async_step_voice", 1)[1].split("return self.async_show_form", 1)[0]
