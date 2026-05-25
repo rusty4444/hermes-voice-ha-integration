@@ -12,7 +12,7 @@ This repository is a bundle of three pieces:
 | Hermes Home Assistant plugin | `plugins/home_assistant/` | Gives Hermes tools for entity search, state lookup, service calls, bulk control, scene/script discovery, and HA context. |
 | Hermes voice-stack plugin | `plugins/voice_stack/` | Adds wake-word, speech-to-text, text-to-speech, and voice pipeline helpers. |
 
-> **Release:** `v0.0.3` — clarifies the setup UI for the Hermes host/container URL and Hermes API/WebSocket token, and adds packaged icons for HACS/Home Assistant.
+> **Release:** `v0.0.4` — uses the README logo as Home Assistant local brand assets under `custom_components/hermes/brand/` so the integration icon no longer shows as unavailable.
 
 ---
 
@@ -498,7 +498,7 @@ High-level flow:
 4. Start the add-on.
 5. Open the add-on logs and confirm Hermes starts cleanly.
 
-The add-on is intentionally marked `boot: manual` in `v0.0.3`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
+The add-on is intentionally marked `boot: manual` in `v0.0.4`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
 
 ---
 
@@ -645,7 +645,7 @@ Check:
 
 ---
 
-## Known limitations in `v0.0.3`
+## Known limitations in `v0.0.4`
 
 - The voice stack is usable as engine wrappers and Hermes tools, but room-grade voice satellite UX still needs more work.
 - TTS audio delivery to HA media players may need an HTTP/media bridge depending on deployment topology.

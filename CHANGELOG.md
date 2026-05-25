@@ -2,6 +2,12 @@
 
 All notable changes to `hermes-voice-ha-integration`.
 
+## [0.0.4] — 2026-05-25
+
+### Fixed
+- Added Home Assistant local brand assets under `custom_components/hermes/brand/` (`icon.png`, `logo.png`, `icon@2x.png`, `logo@2x.png`) generated from the README logo so the integration can serve `/api/brands/integration/hermes/icon.png` instead of showing "Icon Not Available".
+- Kept the root and legacy integration icon/logo PNGs in sync with the README logo for HACS/repository contexts.
+
 ## [0.0.3] — 2026-05-25
 
 ### Added
