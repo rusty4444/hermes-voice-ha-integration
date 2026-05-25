@@ -170,61 +170,67 @@ def _handle_voice_enable(args: dict, **kw) -> str:
             "error": "Voice engines not available. Check voice_status for details.",
         })
 
-    if _pipeline and _pipeline.state.enabled:
-        return json.dumps({"ok": True, "message": "Voice mode already enabled."})
+    with _pipeline_lock:
+        if _pipeline and _pipeline.state.enabled:
+            return json.dumps({"ok": True, "message": "Voice mode already enabled."})
 
-    config = _get_config()
-    media_player = args.get("media_player_entity") or config["media_player_entity"] or None
+        config = _get_config()
+        media_player = args.get("media_player_entity") or config["media_player_entity"] or None
 
-    from plugins.voice_stack.pipeline import VoicePipeline
+        from plugins.voice_stack.pipeline import VoicePipeline
 
-    # Define the callback that sends user text to Hermes
-    # In production this is wired by the Hermes tool dispatch system.
-    # For now, the callback uses the HA tool bridge directly.
-    def _voice_callback(text: str) -> str:
-        """Called when STT produces text. This is where Hermes processes it."""
-        logger.info("Voice callback received: %s", text)
-        try:
-            from plugins.home_assistant.ha_assistant import (
-                search_entities,
-                call_service,
+        # Define the callback that sends user text to Hermes
+        # In production this is wired by the Hermes tool dispatch system.
+        # For now, the callback uses the HA tool bridge directly.
+        def _voice_callback(text: str) -> str:
+            """Called when STT produces text. This is where Hermes processes it."""
+            logger.info("Voice callback received: %s", text)
+            try:
+                from plugins.home_assistant.ha_assistant import (
+                    search_entities,
+                    call_service,
+                )
+            except ImportError:
+                return "The Home Assistant bridge is not available."
+            # For P1, delegate the actual LLM processing to the Hermes agent
+            # via a registered hook. The response here is a placeholder —
+            # the Hermes agent loop handles full NLU.
+            return (
+                f"I heard: {text}. "
+                "Voice processing is active — Hermes is listening."
             )
-        except ImportError:
-            return "The Home Assistant bridge is not available."
 
-        # For P1, delegate the actual LLM processing to the Hermes agent
-        # via a registered hook. The response here is a placeholder —
-        # the Hermes agent loop handles full NLU.
-        return (
-            f"I heard: {text}. "
-            "Voice processing is active — Hermes is listening."
+        _pipeline = VoicePipeline(
+            callback=_voice_callback,
+            wake_word_engine=_wake_word_engine,
+            stt_engine=_stt_engine,
+            tts_engine=_tts_engine,
+            media_player_entity=media_player,
+            max_record_duration=config["max_record_duration"],
+            silence_timeout=config["silence_timeout"],
+            confidence_threshold=config["confidence_threshold"],
         )
 
-    _pipeline = VoicePipeline(
-        callback=_voice_callback,
-        wake_word_engine=_wake_word_engine,
-        stt_engine=_stt_engine,
-        tts_engine=_tts_engine,
-        media_player_entity=media_player,
-        max_record_duration=config["max_record_duration"],
-        silence_timeout=config["silence_timeout"],
-        confidence_threshold=config["confidence_threshold"],
-    )
+        if not _pipeline.available:
+            _pipeline = None
+            return json.dumps({"ok": False, "error": "Engines not all available."})
 
-    if not _pipeline.available:
-        return json.dumps({"ok": False, "error": "Engines not all available."})
-
-    _pipeline.start()
+        started = _pipeline.start()
+        if not started:
+            _pipeline = None
+            return json.dumps({"ok": False, "error": "Voice pipeline failed to start."})
     return json.dumps({"ok": True, "message": "Voice mode enabled. Wake word active."})
+
 
 
 def _handle_voice_disable(args: dict, **kw) -> str:
     """Disable voice mode."""
     global _pipeline
-    if _pipeline:
-        _pipeline.stop()
-        _pipeline = None
-        return json.dumps({"ok": True, "message": "Voice mode disabled."})
+    with _pipeline_lock:
+        if _pipeline:
+            _pipeline.stop()
+            _pipeline = None
+            return json.dumps({"ok": True, "message": "Voice mode disabled."})
     return json.dumps({"ok": True, "message": "Voice mode was not active."})
 
 
@@ -261,24 +267,37 @@ def _handle_voice_listen(args: dict, **kw) -> str:
     """
     _ensure_voice_ready()
     if not _stt_engine or not _stt_engine.available():
-        return json.dumps({"ok": False, "error": "STT engine not available."})
+        return json.dumps({"ok": False, "error": "STT engine not available.", "error_category": "engine_unavailable"})
 
     config = _get_config()
-    duration = float(args.get("duration", config["max_record_duration"]))
+    try:
+        duration = float(args.get("duration", config["max_record_duration"]))
+    except (TypeError, ValueError):
+        return json.dumps({"ok": False, "error": "duration must be numeric", "error_category": "invalid_duration"})
+    if duration <= 0 or duration > 60:
+        return json.dumps({"ok": False, "error": "duration must be between 0 and 60 seconds", "error_category": "invalid_duration"})
     language = args.get("language", None)
 
     import tempfile
     from plugins.voice_stack.pipeline import record_audio
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(Path.home() / ".hermes" / "voice_cache")) as tmp:
+    cache_dir = Path.home() / ".hermes" / "voice_cache"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return json.dumps({"ok": False, "error": str(exc), "error_category": "cache_unavailable"})
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(cache_dir)) as tmp:
         audio_path = tmp.name
 
     try:
         recorded = record_audio(audio_path, duration=duration)
         if not recorded:
-            return json.dumps({"ok": False, "error": "No speech detected."})
-
-        result = _stt_engine.transcribe_with_confidence(audio_path, language=language)
+            return json.dumps({"ok": False, "error": "No speech detected.", "error_category": "no_speech"})
+        try:
+            result = _stt_engine.transcribe_with_confidence(audio_path, language=language)
+        except Exception as exc:
+            return json.dumps({"ok": False, "error": str(exc), "error_category": "transcription_failed"})
         return json.dumps({
             "ok": True,
             "text": result.get("text", ""),
@@ -286,7 +305,7 @@ def _handle_voice_listen(args: dict, **kw) -> str:
             "language": result.get("language", "unknown"),
         })
     except Exception as exc:
-        return json.dumps({"ok": False, "error": str(exc)})
+        return json.dumps({"ok": False, "error": str(exc), "error_category": "recording_failed"})
     finally:
         try:
             os.unlink(audio_path)

@@ -27,6 +27,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+
+class VoiceRecordingError(RuntimeError):
+    """Raised when microphone capture fails before speech classification."""
+
 # ---------------------------------------------------------------------------
 # Audio recording helper
 # ---------------------------------------------------------------------------
@@ -48,9 +52,9 @@ def record_audio(
     import numpy as np
     try:
         import sounddevice as sd
-    except ImportError:
+    except ImportError as exc:
         logger.error("sounddevice not installed — cannot record audio")
-        return False
+        raise VoiceRecordingError("sounddevice not installed — cannot record audio") from exc
 
     try:
         # Record raw audio
@@ -98,7 +102,7 @@ def record_audio(
 
     except Exception as exc:
         logger.error("Audio recording failed: %s", exc)
-        return False
+        raise VoiceRecordingError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -344,15 +348,23 @@ class VoicePipeline:
                     self._state.wake_word_detected = True
 
                 # 2. Record audio
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(Path.home() / ".hermes" / "voice_cache")) as tmp:
+                cache_dir = Path.home() / ".hermes" / "voice_cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False, dir=str(cache_dir)) as tmp:
                     audio_path = tmp.name
-                Path(audio_path).parent.mkdir(parents=True, exist_ok=True)
 
-                recorded = record_audio(
-                    audio_path,
-                    duration=self._max_record_duration,
-                    silence_timeout=self._silence_timeout,
-                )
+                try:
+                    recorded = record_audio(
+                        audio_path,
+                        duration=self._max_record_duration,
+                        silence_timeout=self._silence_timeout,
+                    )
+                except Exception:
+                    try:
+                        os.unlink(audio_path)
+                    except OSError:
+                        pass
+                    raise
                 if not recorded:
                     os.unlink(audio_path)
                     continue
@@ -388,16 +400,9 @@ class VoicePipeline:
                 if not response:
                     continue
 
-                # 5. TTS synthesis
-                audio_output = self._tts.synthesize(response)
-                if not audio_output:
+                # 5. TTS synthesis + playback
+                if not self._speak(response):
                     continue
-
-                # 6. Playback
-                if self._media_player_entity:
-                    play_audio_ha(audio_output, self._media_player_entity)
-                else:
-                    play_audio_local(audio_output)
 
                 self._state.total_interactions += 1
                 self._state.wake_word_detected = False
@@ -409,19 +414,24 @@ class VoicePipeline:
             finally:
                 self._state.listening = False
 
-    def _speak(self, text: str) -> None:
+    def _speak(self, text: str) -> bool:
         """Speak text through TTS + playback with retry fallback."""
         for attempt in (1, 2):
             try:
                 audio_path = self._tts.synthesize(text)
+                if not audio_path:
+                    raise RuntimeError("TTS engine returned no audio path")
                 if self._media_player_entity:
-                    play_audio_ha(audio_path, self._media_player_entity)
+                    played = play_audio_ha(audio_path, self._media_player_entity)
                 else:
-                    play_audio_local(audio_path)
-                return  # success
+                    played = play_audio_local(audio_path)
+                if not played:
+                    raise RuntimeError("Audio playback failed")
+                return True
             except Exception as exc:
                 logger.warning("TTS speak failed (attempt %d/2): %s", attempt, exc)
                 if attempt == 1:
                     time.sleep(0.5)  # brief backoff before retry
                 else:
                     logger.error("TTS speak failed after 2 attempts: %s", exc)
+        return False
