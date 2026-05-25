@@ -12,7 +12,7 @@ This repository is a bundle of three pieces:
 | Hermes Home Assistant plugin | `plugins/home_assistant/` | Gives Hermes tools for entity search, state lookup, service calls, bulk control, scene/script discovery, and HA context. |
 | Hermes voice-stack plugin | `plugins/voice_stack/` | Adds wake-word, speech-to-text, text-to-speech, and voice pipeline helpers. |
 
-> **Release:** `v0.0.2` — adds the HA-facing Hermes WebSocket receiver and the full HA config/options UI (voice pipeline, entity allow-list editor, SSL toggle).
+> **Release:** `v0.0.3` — clarifies the setup UI for the Hermes host/container URL and Hermes API/WebSocket token, and adds packaged icons for HACS/Home Assistant.
 
 ---
 
@@ -257,9 +257,23 @@ Restart Home Assistant after copying.
 1. Open **Settings → Devices & services**.
 2. Click **Add integration**.
 3. Search for **Hermes Voice Assistant**.
-4. Enter:
-   - **Hermes URL** — the URL HA should use to reach Hermes, for example `http://homeassistant.local:7860` if you run the add-on, `http://192.168.1.10:7860` if Hermes runs on another host, or your Hermes gateway/API URL.
-   - **Token** — bearer token for your Hermes endpoint. If you set `HERMES_HA_WS_TOKEN`/`API_SERVER_KEY`/`HERMES_API_KEY`, enter the same value here. If your endpoint is deliberately unauthenticated, any placeholder works.
+4. Complete the setup form:
+
+![Hermes setup UI field guide](docs/setup-ui-guide.png)
+
+| Setup field | What it means | Example |
+|---|---|---|
+| **Hermes Agent API URL** | The base URL of the machine or container running Hermes Agent's HA-facing API/WebSocket receiver. This must be reachable from Home Assistant. It is **not** your Home Assistant URL. | `http://192.168.1.20:7860` or `http://hermes.local:7860` |
+| **Hermes API / WebSocket token** | The bearer token expected by Hermes for the HA WebSocket/API receiver. Use `HERMES_HA_WS_TOKEN` if you set it; otherwise use the fallback token configured as `API_SERVER_KEY` or `HERMES_API_KEY`. This is **not** a Home Assistant long-lived access token. | the same shared Hermes token from `~/.hermes/.env` |
+
+Visual check:
+
+```text
+Home Assistant  →  http://<hermes-host>:7860  →  /api/hermes/ws
+```
+
+Do **not** enter `http://homeassistant.local:8123` in the Hermes URL field. That URL is only used by Hermes itself when Hermes talks back to Home Assistant via `HASS_URL`.
+
 5. Submit.
 
 The integration adds:
@@ -484,7 +498,7 @@ High-level flow:
 4. Start the add-on.
 5. Open the add-on logs and confirm Hermes starts cleanly.
 
-The add-on is intentionally marked `boot: manual` in `v0.0.2`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
+The add-on is intentionally marked `boot: manual` in `v0.0.3`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
 
 ---
 
@@ -631,7 +645,7 @@ Check:
 
 ---
 
-## Known limitations in `v0.0.2`
+## Known limitations in `v0.0.3`
 
 - The voice stack is usable as engine wrappers and Hermes tools, but room-grade voice satellite UX still needs more work.
 - TTS audio delivery to HA media players may need an HTTP/media bridge depending on deployment topology.

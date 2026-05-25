@@ -2,6 +2,17 @@
 
 All notable changes to `hermes-voice-ha-integration`.
 
+## [0.0.3] — 2026-05-25
+
+### Added
+- Added packaged logo/icon assets for HACS and Home Assistant (`icon.png`, `custom_components/hermes/icon.png`, and `custom_components/hermes/logo.png`) using the existing Hermes logo artwork.
+
+### Changed
+- Reworked the initial setup form copy so it clearly asks for the Hermes Agent machine/container URL, not the Home Assistant URL.
+- Clarified that the token field expects the Hermes API/WebSocket bearer token (`HERMES_HA_WS_TOKEN`, or the API server token fallback), not a Home Assistant long-lived access token.
+- Switched the setup URL field to a URL selector, the token field to a password selector, and changed the default URL example to `http://hermes.local:7860`.
+- Added visual setup instructions to the README, including a field guide image and an explicit Home Assistant → Hermes connection path.
+
 ## [0.0.2] — 2026-05-24
 
 ### Added

@@ -2,16 +2,22 @@
   "config": {
     "step": {
       "user": {
+        "title": "Connect to Hermes Agent",
+        "description": "Enter the base URL and token for the machine or container running Hermes Agent's Home Assistant voice/WebSocket receiver. This is the Hermes endpoint that Home Assistant can reach; it is not your Home Assistant URL.",
         "data": {
-          "url": "Hermes Agent URL",
-          "token": "Hermes Access Token"
+          "url": "Hermes Agent API URL",
+          "token": "Hermes API / WebSocket token"
+        },
+        "data_description": {
+          "url": "Base URL of the Hermes host/container, for example http://192.168.1.20:7860 or http://hermes.local:7860. The integration connects to the Hermes receiver under this URL.",
+          "token": "Bearer token expected by Hermes Agent. Use HERMES_HA_WS_TOKEN if set; otherwise use the API_SERVER_KEY/HERMES_API_KEY token used by the Hermes API server. This is not a Home Assistant long-lived access token."
         }
       }
     },
     "error": {
       "url_required": "URL is required",
       "url_invalid": "URL must start with http:// or https://",
-      "token_required": "Access token is required"
+      "token_required": "Hermes API / WebSocket token is required"
     }
   },
   "options": {

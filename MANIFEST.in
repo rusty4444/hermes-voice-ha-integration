@@ -1,6 +1,8 @@
-include README.md LICENSE CHANGELOG.md hacs.json logo.png
+include README.md LICENSE CHANGELOG.md hacs.json logo.png icon.png
+recursive-include docs *.png *.md *.html
 recursive-include custom_components *
 recursive-include addon *
 recursive-include plugins *.py *.yaml *.md
 recursive-include skills *
 recursive-include tests *.py
+global-exclude __pycache__ *.py[cod] .DS_Store
