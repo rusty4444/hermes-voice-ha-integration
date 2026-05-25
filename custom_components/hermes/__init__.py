@@ -18,12 +18,12 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_URL, CONF_TOKEN, Platform
-from homeassistant.core import HomeAssistant, ServiceResponse
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE, CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL, CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE, CONF_WAKE_WORD, DEFAULT_WAKE_WORD, CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER
+from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE, CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL, CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE, CONF_WAKE_WORD, DEFAULT_WAKE_WORD, CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER, normalize_wake_word
 from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,7 +50,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entity_filter = options.get(CONF_ENTITY_FILTER, entry.data.get(CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER))
     verify_ssl = options.get(CONF_VERIFY_SSL, entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
 
-    bridge = HermesBridge(hass, url, token, entity_filter, verify_ssl)
+    bridge = HermesBridge(
+        hass,
+        url,
+        token,
+        entity_filter,
+        verify_ssl,
+        tts_engine=options.get(CONF_TTS_ENGINE, entry.data.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)),
+        tts_voice=options.get(CONF_TTS_VOICE, entry.data.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE)),
+        stt_engine=options.get(CONF_STT_ENGINE, entry.data.get(CONF_STT_ENGINE, DEFAULT_STT_ENGINE)),
+        stt_model=options.get(CONF_STT_MODEL, entry.data.get(CONF_STT_MODEL, DEFAULT_STT_MODEL)),
+        wake_word_engine=options.get(CONF_WAKE_WORD_ENGINE, entry.data.get(CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE)),
+        wake_word=options.get(CONF_WAKE_WORD, entry.data.get(CONF_WAKE_WORD, DEFAULT_WAKE_WORD)),
+        media_player_entity=options.get(CONF_MEDIA_PLAYER, entry.data.get(CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER)),
+    )
     hass.data[DOMAIN][entry.entry_id] = bridge
 
     # Connect WebSocket to Hermes Agent
@@ -113,7 +126,7 @@ class HermesBridge:
         stt_engine: str = DEFAULT_STT_ENGINE,
         stt_model: str = DEFAULT_STT_MODEL,
         wake_word_engine: str = DEFAULT_WAKE_WORD_ENGINE,
-        wake_word: str = DEFAULT_WAKE_WORD,
+        wake_word: str | list[str] = DEFAULT_WAKE_WORD,
         media_player_entity: str = DEFAULT_MEDIA_PLAYER,
     ) -> None:
         self.hass = hass
@@ -126,7 +139,7 @@ class HermesBridge:
         self.stt_engine = stt_engine
         self.stt_model = stt_model
         self.wake_word_engine = wake_word_engine
-        self.wake_word = wake_word
+        self.wake_word = normalize_wake_word(wake_word)
         self.media_player_entity = media_player_entity
         self._session: Any = None
         self._ws: Any = None
@@ -248,7 +261,21 @@ class HermesBridge:
         """Relay a Hermes voice/control command over the Hermes WebSocket."""
         _LOGGER.debug("Hermes command received: %s", command)
         action = str(command.get("action", "")).lower()
-        payload = {"type": "voice_action", "action": action}
+        payload = {
+            "type": "voice_action",
+            "action": action,
+            "media_player_entity": command.get("media_player_entity", self.media_player_entity),
+            "args": {
+                "tts_engine": self.tts_engine,
+                "tts_voice": self.tts_voice,
+                "stt_engine": self.stt_engine,
+                "stt_model": self.stt_model,
+                "wake_word_engine": self.wake_word_engine,
+                "wake_word": self.wake_word,
+                "media_player_entity": command.get("media_player_entity", self.media_player_entity),
+                **dict(command.get("args") or {}),
+            },
+        }
 
         if action == "enable":
             self._voice_ready = True

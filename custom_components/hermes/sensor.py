@@ -113,10 +113,11 @@ class HermesStatusSensor(SensorEntity):
         self,
         coordinator: HermesStatusUpdateCoordinator,
         description: SensorEntityDescription,
+        entry_id: str,
     ) -> None:
         self._coordinator = coordinator
         self.entity_description = description
-        self._attr_unique_id = f"{DOMAIN}_{description.key}"
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_{description.key}"
         self._attr_has_entity_name = True
 
     @property
@@ -158,7 +159,7 @@ async def async_setup_entry(hass, entry, async_add_entities) -> bool:
     )
     await coordinator.async_config_entry_first_refresh()
 
-    entities = [HermesStatusSensor(coordinator, desc) for desc in _DESCRIPTIONS]
+    entities = [HermesStatusSensor(coordinator, desc, entry.entry_id) for desc in _DESCRIPTIONS]
     hass.data.setdefault(f"{DOMAIN}_entities", {})[entry.entry_id] = entities
     async_add_entities(entities)
     return True
