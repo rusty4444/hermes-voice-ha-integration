@@ -167,12 +167,22 @@ Configure Home Assistant connection details for Hermes. The plugin reads standar
 
 ```bash
 cat >> ~/.hermes/.env <<'EOF'
+# URL to your Home Assistant instance (not the Hermes URL)
 HASS_URL=http://homeassistant.local:8123
+# Long-lived access token from HA user profile → Security → Long-Lived Access Tokens
 HASS_TOKEN=replace-with-your-long-lived-access-token
-# Optional: require the HA custom integration to use this bearer token
-HERMES_HA_WS_TOKEN=replace-with-shared-hermes-token
+# Optional: bearer token for the HA-to-Hermes WebSocket connection. Leave empty if no auth is needed.
+HERMES_HA_WS_TOKEN=
 EOF
 ```
+
+**About the `HASS_URL` format:** The URL must include a scheme (`http://` or `https://`) and a hostname or IP address. For example `http://192.168.1.50:8123`. If you see `"No host part in the URL"`, the URL is missing the `http://` prefix or the hostname.
+
+**About `HERMES_HA_WS_TOKEN`:** This is optional and used to secure the connection **from Home Assistant to Hermes**. Most users do not need it:
+
+- **Leave empty** (or omit) for unauthenticated WebSocket connections.
+- **Set to any string** (e.g. `my-hermes-token`) if you want to require a matching token on the HA side. If you set this, enter the same value in the HA custom integration setup form field "Hermes API / WebSocket token".
+- If unset, the system falls back to `API_SERVER_KEY` or `HERMES_API_KEY` if either is configured.
 
 If your HA URL is different, use that instead, for example:
 
@@ -192,6 +202,16 @@ plugins:
 If your config already has a `plugins.enabled` list, add the two entries instead of replacing the whole section.
 
 Restart Hermes after changing plugins or `.env`.
+
+**How the WebSocket receiver starts:** The WebSocket receiver does not require a standalone `server.py` file. It starts automatically when the `voice_stack` plugin loads. After restarting Hermes, check that the WebSocket is active:
+
+```bash
+# Confirm the plugin is loaded
+hermes plugins | grep voice_stack
+
+# Test the WebSocket endpoint (replace with your Hermes host/port)
+curl -N --no-buffer -H "Accept: text/event-stream" http://localhost:7860/api/hermes/ws
+```
 
 The `voice_stack` plugin starts a small HA-facing WebSocket receiver at:
 
