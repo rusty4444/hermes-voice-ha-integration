@@ -105,12 +105,12 @@ class HermesOptionsFlow(OptionsFlow):
     """Multi-step options flow for Hermes."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
-        self.config_entry = config_entry
+        self._config_entry = config_entry
         self._pending: dict | None = None
 
     async def async_step_init(self, user_input: dict | None = None) -> FlowResult:
         """Step 1 — entity allow-list and SSL verification."""
-        current = dict(self.config_entry.options or {})
+        current = dict(self._config_entry.options or {})
 
         if user_input is not None:
             self._pending = {
@@ -144,7 +144,7 @@ class HermesOptionsFlow(OptionsFlow):
 
     async def async_step_voice(self, user_input: dict | None = None) -> FlowResult:
         """Step 2 — voice pipeline configuration."""
-        current = dict(self.config_entry.options or {})
+        current = dict(self._config_entry.options or {})
         if self._pending:
             current.update(self._pending)
 
