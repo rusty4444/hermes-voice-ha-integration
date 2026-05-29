@@ -25,6 +25,16 @@ def _install_homeassistant_stubs() -> None:
     }
     for name, module in modules.items():
         sys.modules.setdefault(name, module)
+    
+    # Create a proper conversation module stub
+    conversation_module = ModuleType("homeassistant.components.conversation")
+    conversation_module.AbstractConversationAgent = object
+    conversation_module.ConversationEntity = object
+    conversation_module.ConversationInput = object
+    conversation_module.ConversationResult = object
+    sys.modules["homeassistant.components.conversation"] = conversation_module
+    
+    # Add required attributes to the stubs
     sys.modules["homeassistant.config_entries"].ConfigEntry = object
     sys.modules["homeassistant.const"].CONF_URL = "url"
     sys.modules["homeassistant.const"].CONF_TOKEN = "token"
@@ -256,7 +266,6 @@ async def test_voice_settings_enable_uses_configured_media_player_when_omitted()
 
     handler = hass.services.registered[(DOMAIN, hermes_services.SERVICE_VOICE_SETTINGS)]
     response = await handler(FakeCall({"action": "enable", "entry_id": "entry-1"}))
-
     assert response["ok"] is True
     assert bridge.commands[-1]["media_player_entity"] == "media_player.default"
 
@@ -275,7 +284,6 @@ async def test_voice_settings_query_returns_limited_matches() -> None:
 
     handler = hass.services.registered[(DOMAIN, hermes_services.SERVICE_VOICE_SETTINGS)]
     response = await handler(FakeCall({"query": "kitchen", "limit": 1, "include_attributes": False}))
-
     assert response == {
         "ok": True,
         "query": "kitchen",

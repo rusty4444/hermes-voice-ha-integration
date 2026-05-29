@@ -18,6 +18,14 @@ All notable changes to `hermes-voice-ha-integration`.
 - Created voice-cache directories before temporary recordings and returned stable `voice_listen` error categories for invalid durations, unavailable engines, recording failures, no speech, and transcription failures.
 - Reused the voice pipeline lock across enable/disable paths so concurrent lifecycle calls cannot create multiple active pipeline instances.
 
+## [0.0.6] — 2026-05-29
+
+### Added
+- Conversation agent: HA Assist can now route natural-language requests to @hermes-agent via WebSocket.
+
+### Changed
+- Raised version to 0.0.6 across all integration, plugin, and addon manifests.
+
 ## [0.0.5] — 2026-05-25
 
 ### Fixed
