@@ -22,7 +22,7 @@ This repository is a bundle of three pieces:
 | Install target | Mechanism | Artifact/source | Current maturity |
 |---|---|---|---|
 | HA custom integration | HACS custom repository or manual copy | GitHub tag/source distribution, `custom_components/hermes/` | Supported |
-| Hermes plugins | Copy into `~/.hermes/plugins` or install the Python wheel | Wheel/source distribution, `plugins/*` | Supported |
+| Hermes plugins | Copy into `~/.hermes/hermes-agent/plugins` or install the Python wheel | Wheel/source distribution, `plugins/*` | Supported |
 | HA add-on | Home Assistant Supervisor add-on scaffold | GitHub tag/source distribution, `addon/` | Early scaffold |
 
 The Python wheel is intentionally plugin-focused. Use the GitHub tag or source distribution for the full HACS/custom-component/add-on bundle.
@@ -158,9 +158,9 @@ cd hermes-voice-ha-integration
 Copy the plugins into your Hermes plugin directory:
 
 ```bash
-mkdir -p ~/.hermes/plugins
-cp -R plugins/home_assistant ~/.hermes/plugins/home_assistant
-cp -R plugins/voice_stack ~/.hermes/plugins/voice_stack
+mkdir -p ~/.hermes/hermes-agent/plugins
+cp -R plugins/home_assistant ~/.hermes/hermes-agent/plugins/home_assistant
+cp -R plugins/voice_stack ~/.hermes/hermes-agent/plugins/voice_stack
 ```
 
 Configure Home Assistant connection details for Hermes. The plugin reads standard environment variables:
