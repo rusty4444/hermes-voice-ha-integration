@@ -27,7 +27,7 @@ This repository is a bundle of three pieces:
 
 The Python wheel is intentionally plugin-focused. Use the GitHub tag or source distribution for the full HACS/custom-component/add-on bundle.
 
-> **Release:** `v0.0.5` — ships runtime Home Assistant translations so the setup form explains exactly what the Hermes URL and token fields mean.
+> **Release:** `v0.0.6` — ships runtime Home Assistant translations so the setup form explains exactly what the Hermes URL and token fields mean.
 
 ---
 
@@ -534,7 +534,7 @@ High-level flow:
 4. Start the add-on.
 5. Open the add-on logs and confirm Hermes starts cleanly.
 
-The add-on is intentionally marked `boot: manual` in `v0.0.5`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
+The add-on is intentionally marked `boot: manual` in `v0.0.6`. Start it manually first, verify logs, then decide whether to change boot behaviour later.
 
 ---
 
@@ -689,7 +689,7 @@ Check:
 
 ---
 
-## Known limitations in `v0.0.5`
+## Known limitations in `v0.0.6`
 
 - The voice stack is usable as engine wrappers and Hermes tools, but room-grade voice satellite UX still needs more work.
 - TTS audio delivery to HA media players may need an HTTP/media bridge depending on deployment topology.

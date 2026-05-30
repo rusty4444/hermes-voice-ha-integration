@@ -4,6 +4,8 @@ All notable changes to `hermes-voice-ha-integration`.
 
 ## [Unreleased]
 
+## [0.0.6] — 2026-05-25
+
 ### Added
 - Added structured service responses and runtime schemas for `hermes.hermes_command` and `hermes.voice_settings`.
 - Added tests for Home Assistant service response handling, voice settings queries, option wiring, and entry-scoped sensor IDs.
