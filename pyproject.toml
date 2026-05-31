@@ -2,7 +2,7 @@
 name = "hermes-voice-ha-integration"
 version = "0.0.7"
 description = "Home Assistant voice stack integration for Hermes Agent"
-authors = [{name = "Sam Russell", email = "sam.russell@samprim.net"}]
+authors = [{name = "Sam Russell", email = "rusty4444@users.noreply.github.com"}]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
