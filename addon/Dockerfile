@@ -67,8 +67,10 @@ RUN cp -R /opt/hermes-voice-ha-integration/plugins/home_assistant /opt/hermes-ag
 COPY run.sh /opt/run.sh
 RUN chmod +x /opt/run.sh
 
-# Hermes config directory
+# Hermes config directory. HOME is set explicitly because some Hermes voice
+# engines use Path.home() when deriving their cache path.
 RUN mkdir -p /data/hermes /data/hermes/logs /data/hermes/voice_cache
+ENV HOME=/data/hermes
 ENV HERMES_HOME=/data/hermes
 ENV HERMES_VOICE_CACHE=/data/hermes/voice_cache
 

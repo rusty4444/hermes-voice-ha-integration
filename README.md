@@ -221,6 +221,9 @@ ws://<hermes-host>:7860/api/hermes/ws
 
 Home Assistant connects to this endpoint through the **Hermes URL** you enter below. If `HERMES_HA_WS_TOKEN`, `API_SERVER_KEY`, or `HERMES_API_KEY` is set, the HA custom integration token must match it.
 
+When running the Home Assistant add-on, expose/map TCP port `7860` so Home Assistant can reach the HA-facing receiver. The bundled add-on config maps `7860/tcp` by default.
+
+The add-on also sets `HOME`, `HERMES_HOME`, and `HERMES_VOICE_CACHE` to `/data/hermes` so voice engines that call `Path.home()` write their cache under `/data/hermes/voice_cache` instead of `/root/.hermes/voice_cache`.
 
 ---
 
@@ -309,6 +312,8 @@ Home Assistant  →  http://<hermes-host>:7860  →  /api/hermes/ws
 ```
 
 Do **not** enter `http://homeassistant.local:8123` in the Hermes URL field. That URL is only used by Hermes itself when Hermes talks back to Home Assistant via `HASS_URL`.
+
+This integration currently exposes Hermes services, status sensors, and the HA-to-Hermes WebSocket bridge. It does **not** yet register a Home Assistant Assist/conversation agent, so it will not appear in the **Preferred conversation agent** selector until a dedicated conversation platform is added.
 
 5. Submit.
 
@@ -678,6 +683,22 @@ HASS_URL=http://192.168.1.50:8123
 - Confirm `HERMES_MEDIA_PLAYER` is a real `media_player.*` entity.
 - Confirm the player supports `play_media`.
 - If running Hermes outside HA, ensure HA can access generated audio. This may need an HTTP-accessible media bridge.
+
+### Permission denied for `/root/.hermes/voice_cache` in the add-on
+
+Update to an add-on build that sets `HOME=/data/hermes`. The add-on should log the Hermes home as `/data/hermes`, and the cache directory should be `/data/hermes/voice_cache`.
+
+If you are running a custom container, set these environment variables explicitly:
+
+```bash
+HOME=/data/hermes
+HERMES_HOME=/data/hermes
+HERMES_VOICE_CACHE=/data/hermes/voice_cache
+```
+
+### Port `7860` is already in use
+
+Only one process in the container or host can bind `0.0.0.0:7860`. If the HA WebSocket receiver logs `address already in use`, check whether another Hermes process or an old container is already listening on that port, then stop the duplicate process or move one receiver to a different `HERMES_HA_WS_PORT` and update the Hermes URL in the HA integration accordingly.
 
 ### Service call denied
 
