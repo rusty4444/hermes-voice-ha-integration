@@ -15,7 +15,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from plugins.home_assistant.ha_assistant import call_service, search_entities
+from .ha_assistant import call_service, search_entities
 
 logger = logging.getLogger(__name__)
 
@@ -260,7 +260,7 @@ def _handle_bulk_control(args: dict, **kw) -> str:
     futures: dict = {}
 
     # We reuse the existing thread pool from ha_assistant.py
-    from plugins.home_assistant.ha_assistant import call_service
+    from .ha_assistant import call_service
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(operations), 10)) as executor:
         for i, op in enumerate(operations):

@@ -20,7 +20,7 @@ def discover_scenes_scripts() -> Dict[str, Any]:
     Returns: {"scenes": [...], "scripts": [...], "total_scenes": N, "total_scripts": N}
     """
     try:
-        from plugins.home_assistant.ha_assistant import search_entities
+        from .ha_assistant import search_entities
 
         scenes = search_entities(domain="scene")
         scripts = search_entities(domain="script")
@@ -93,7 +93,7 @@ def make_scene_handler(entity_id: str) -> Callable[..., str]:
     """Return a handler function that activates the given scene."""
 
     def _handler(args: dict, **kw) -> str:
-        from plugins.home_assistant.ha_assistant import call_service
+        from .ha_assistant import call_service
         result = call_service("scene", "turn_on", entity_id=entity_id)
         if "error" in result:
             return json.dumps({"error": result["error"]})
@@ -106,7 +106,7 @@ def make_script_handler(entity_id: str) -> Callable[..., str]:
     """Return a handler function that runs the given script."""
 
     def _handler(args: dict, **kw) -> str:
-        from plugins.home_assistant.ha_assistant import call_service
+        from .ha_assistant import call_service
         result = call_service("script", "turn_on", entity_id=entity_id)
         if "error" in result:
             return json.dumps({"error": result["error"]})

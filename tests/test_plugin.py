@@ -308,7 +308,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "home_assistant"
-        assert data["version"] == "0.0.5"
+        assert data["version"] == "0.0.7"
         assert "on_session_start" in data["hooks"]
 
     def test_voice_stack_plugin_yaml_valid(self):
@@ -318,7 +318,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "voice_stack"
-        assert data["version"] == "0.0.5"
+        assert data["version"] == "0.0.7"
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +558,7 @@ class TestObservability:
         assert data["domain"] == "hermes"
         assert data["config_flow"] is True
         assert "iot_class" in data
-        assert data["version"] == "0.0.5"
+        assert data["version"] == "0.0.7"
 
     def test_config_flow_translations_are_packaged_for_ha_ui(self):
         """HA must ship runtime translations, not only source strings.json."""
@@ -607,7 +607,7 @@ class TestAddonStructure:
         with open(config_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "Hermes Voice Assistant"
-        assert data["version"] == "0.0.5"
+        assert data["version"] == "0.0.7"
         assert data["slug"] == "hermes_voice"
         assert "arch" in data
         assert "amd64" in data["arch"] or "aarch64" in data["arch"]
@@ -826,7 +826,7 @@ class TestVoicePluginInit:
         assert "HERMES_WAKE_WORD_ENGINE" in data["config"]
         assert "HERMES_HA_WS_PORT" in data["config"]
         assert "HERMES_HA_WS_TOKEN" in data["config"]
-        assert data["version"] == "0.0.5"
+        assert data["version"] == "0.0.7"
 
 
 
@@ -1213,8 +1213,38 @@ class TestCHANGELOG:
     def test_changelog_has_version_entries(self):
         cl = Path(__file__).parent.parent / "CHANGELOG.md"
         content = cl.read_text()
-        assert "## [0.0.5]" in content
+        assert "## [0.0.7]" in content
         assert "## [0.0.1]" in content
         assert "## [0.2.0]" in content or "## [0.1.0]" in content
 
 
+
+
+def test_plugins_import_from_user_plugin_namespace(monkeypatch, tmp_path):
+    """User-installed plugins load under Hermes' dynamic plugin namespace.
+
+    Absolute imports like ``from plugins.voice_stack...`` fail there because
+    the user plugin namespace is ``hermes_plugins``. Package-relative imports
+    must keep both sibling plugins importable without touching the local Hermes
+    source tree.
+    """
+    import importlib
+    import shutil
+    import sys
+    import types
+
+    root = Path(__file__).resolve().parents[1]
+    namespace_dir = tmp_path / "hermes_plugins"
+    namespace_dir.mkdir()
+    shutil.copytree(root / "plugins" / "home_assistant", namespace_dir / "home_assistant")
+    shutil.copytree(root / "plugins" / "voice_stack", namespace_dir / "voice_stack")
+
+    namespace = types.ModuleType("hermes_plugins")
+    namespace.__path__ = [str(namespace_dir)]  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "hermes_plugins", namespace)
+
+    home_assistant = importlib.import_module("hermes_plugins.home_assistant")
+    voice_stack = importlib.import_module("hermes_plugins.voice_stack")
+
+    assert hasattr(home_assistant, "register")
+    assert hasattr(voice_stack, "register")

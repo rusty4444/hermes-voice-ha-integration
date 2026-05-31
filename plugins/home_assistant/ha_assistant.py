@@ -27,7 +27,7 @@ def _ensure_security_imported():
     global _security_log_call, _security_is_entity_blocked, _security_is_service_allowed
     if _security_log_call is None:
         try:
-            from plugins.home_assistant.security import (
+            from .security import (
                 is_entity_blocked as _is_blocked,
                 is_service_allowed as _is_allowed,
                 log_call as _log,

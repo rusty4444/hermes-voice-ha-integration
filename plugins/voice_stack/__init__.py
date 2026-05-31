@@ -62,7 +62,7 @@ def _init_engines() -> bool:
     config = _get_config()
 
     # TTS
-    from plugins.voice_stack.engines.tts import create_tts_engine
+    from .engines.tts import create_tts_engine
     try:
         _tts_engine = create_tts_engine(
             engine_type=config["tts"]["engine"],
@@ -73,7 +73,7 @@ def _init_engines() -> bool:
         _tts_engine = None
 
     # STT
-    from plugins.voice_stack.engines.stt import create_stt_engine
+    from .engines.stt import create_stt_engine
     try:
         _stt_engine = create_stt_engine(
             engine_type=config["stt"]["engine"],
@@ -84,7 +84,7 @@ def _init_engines() -> bool:
         _stt_engine = None
 
     # Wake Word (optional — voice mode works without it via voice_listen)
-    from plugins.voice_stack.engines.wake_word import create_wake_word_engine
+    from .engines.wake_word import create_wake_word_engine
     try:
         _wake_word_engine = create_wake_word_engine(
             engine_type=config["wake_word"]["engine"],
@@ -177,7 +177,7 @@ def _handle_voice_enable(args: dict, **kw) -> str:
         config = _get_config()
         media_player = args.get("media_player_entity") or config["media_player_entity"] or None
 
-        from plugins.voice_stack.pipeline import VoicePipeline
+        from .pipeline import VoicePipeline
 
         # Define the callback that sends user text to Hermes
         # In production this is wired by the Hermes tool dispatch system.
@@ -186,7 +186,7 @@ def _handle_voice_enable(args: dict, **kw) -> str:
             """Called when STT produces text. This is where Hermes processes it."""
             logger.info("Voice callback received: %s", text)
             try:
-                from plugins.home_assistant.ha_assistant import (
+                from ..home_assistant.ha_assistant import (
                     search_entities,
                     call_service,
                 )
@@ -245,7 +245,7 @@ def _handle_voice_speak(args: dict, **kw) -> str:
         return json.dumps({"ok": False, "error": "No text provided."})
 
     try:
-        from plugins.voice_stack.pipeline import play_audio_local, play_audio_ha
+        from .pipeline import play_audio_local, play_audio_ha
 
         audio_path = _tts_engine.synthesize(text)
         media_player = args.get("media_player_entity") or _get_config().get("media_player_entity", "")
@@ -279,7 +279,7 @@ def _handle_voice_listen(args: dict, **kw) -> str:
     language = args.get("language", None)
 
     import tempfile
-    from plugins.voice_stack.pipeline import record_audio
+    from .pipeline import record_audio
 
     cache_dir = Path.home() / ".hermes" / "voice_cache"
     try:
@@ -315,12 +315,12 @@ def _handle_voice_listen(args: dict, **kw) -> str:
 
 def _handle_voice_prompt(args: dict, **kw) -> str:
     """Return the voice-optimised system prompt with current HA context."""
-    from plugins.voice_stack.pipeline import build_voice_system_prompt
+    from .pipeline import build_voice_system_prompt
 
     areas = None
     entities = None
     try:
-        from plugins.home_assistant.ha_assistant import search_entities
+        from ..home_assistant.ha_assistant import search_entities
     except ImportError:
         pass
     else:
@@ -459,7 +459,7 @@ def register(ctx) -> None:
     # port is already occupied or aiohttp is unavailable, the warning is logged
     # and normal tool registration still succeeds.
     try:
-        from plugins.voice_stack.ws_receiver import start_ws_receiver
+        from .ws_receiver import start_ws_receiver
         start_ws_receiver()
     except Exception as exc:
         logger.warning("Hermes HA WebSocket receiver did not start: %s", exc)
