@@ -19,7 +19,7 @@ import re
 import time as _time
 from typing import Any, Dict, Optional, Tuple
 
-from plugins.home_assistant.ha_assistant import (
+from .ha_assistant import (
     call_service,
     get_entity_state,
     invalidate_cache,
@@ -28,7 +28,7 @@ from plugins.home_assistant.ha_assistant import (
     refresh_entity_cache,
     search_entities,
 )
-from plugins.home_assistant.compound import (
+from .compound import (
     BULK_CONTROL_SCHEMA,
     CONTROL_LIGHT_AND_SET_SCENE_SCHEMA,
     TURN_OFF_ALL_EXCEPT_SCHEMA,
@@ -36,7 +36,7 @@ from plugins.home_assistant.compound import (
     _handle_control_light_and_set_scene,
     _handle_turn_off_all_except,
 )
-from plugins.home_assistant.security import (
+from .security import (
     is_entity_blocked,
     is_service_allowed,
     log_call,
@@ -334,7 +334,7 @@ def _on_session_start(**kwargs) -> None:
             url, token = _get_ha_creds()
             thread = _WS_LISTENER_THREAD
             if thread is None or not thread.is_alive():
-                from plugins.home_assistant.event_watcher import start_ws_listener
+                from .event_watcher import start_ws_listener
                 if url.startswith("https://"):
                     ws_url = "wss://" + url[len("https://"):]
                 elif url.startswith("http://"):
@@ -350,7 +350,7 @@ def _on_session_start(**kwargs) -> None:
                 logger.info("HA WS event listener skipped (no aiohttp available)")
 
             # --- P3: Scene/Script auto-discovery ---
-            from plugins.home_assistant.discovery import discover_scenes_scripts
+            from .discovery import discover_scenes_scripts
             discovered = discover_scenes_scripts()
             logger.info(
                 "Auto-discovered %d scenes + %d scripts from HA",
@@ -360,7 +360,7 @@ def _on_session_start(**kwargs) -> None:
 
             # --- P3: Set initial status sensor values ---
             try:
-                from plugins.home_assistant.status_sensors import get_status_sensors
+                from .status_sensors import get_status_sensors
                 sensors = get_status_sensors()
                 sensors.start_time = _time.monotonic()
                 sensors.gateway_connected = True

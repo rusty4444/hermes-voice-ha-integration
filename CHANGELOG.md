@@ -4,6 +4,8 @@ All notable changes to `hermes-voice-ha-integration`.
 
 ## [Unreleased]
 
+## [0.0.7] — 2026-05-31
+
 ### Added
 - Added structured service responses and runtime schemas for `hermes.hermes_command` and `hermes.voice_settings`.
 - Added tests for Home Assistant service response handling, voice settings queries, option wiring, and entry-scoped sensor IDs.
@@ -11,6 +13,8 @@ All notable changes to `hermes-voice-ha-integration`.
 - Added voice lifecycle tests covering richer HA action context, pipeline locking, cache directory creation, and categorized one-shot listen failures.
 
 ### Fixed
+- Fixed Hermes user-plugin imports by replacing bundled `plugins.*` absolute imports with package-relative imports so `home_assistant` and `voice_stack` load correctly from Hermes plugin namespaces.
+- Clarified README plugin installation paths for issue #23.
 - Passed configured TTS/STT/wake-word/media-player options into the Home Assistant `HermesBridge` instead of always using bridge defaults.
 - Preserved page-1 options-flow values when saving page-2 voice settings.
 - Normalized wake-word options to a list consistently before storing or forwarding them.

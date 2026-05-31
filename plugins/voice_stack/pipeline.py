@@ -143,7 +143,7 @@ def play_audio_ha(audio_path: str, media_player_entity: str) -> bool:
     """
     # Import the HA bridge to call services
     try:
-        from plugins.home_assistant.ha_assistant import call_service
+        from ..home_assistant.ha_assistant import call_service
     except ImportError:
         logger.error("HA bridge not available — cannot use media_player playback")
         return False

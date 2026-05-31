@@ -137,7 +137,7 @@ def handle_voice_action(payload: dict[str, Any]) -> dict[str, Any]:
         if key not in _VOICE_ACTION_RESERVED_KEYS and key not in args:
             args[key] = value
 
-    from plugins.voice_stack import (
+    from . import (
         _handle_voice_disable,
         _handle_voice_enable,
         _handle_voice_status,
