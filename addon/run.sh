@@ -17,6 +17,9 @@ MEDIA_PLAYER="$(jq -r '.media_player_entity // ""' /data/options.json)"
 LOG_LEVEL="$(jq -r '.log_level // "info"' /data/options.json)"
 
 # Export for Hermes + plugins
+export HOME="/data/hermes"
+export HERMES_HOME="/data/hermes"
+export HERMES_VOICE_CACHE="/data/hermes/voice_cache"
 export HASS_URL="${HA_URL}"
 export HASS_TOKEN="${SUPERVISOR_TOKEN}"
 export HERMES_HA_WS_HOST="0.0.0.0"
