@@ -27,7 +27,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, MAX_QUERY_TEXT_LENGTH
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,8 +63,13 @@ class HermesConversationAgent(ConversationEntity):
 
     @property
     def supported_languages(self) -> list[str]:
-        """Return a list of supported languages for this agent."""
-        return ["en"]
+        """Return the list of supported languages.
+
+        Returns ['*'] to indicate language-agnostic support — Hermes
+        handles language routing internally based on the model/provider
+        configuration.
+        """
+        return ["*"]
 
     @staticmethod
     def _make_error_result(
@@ -95,6 +100,16 @@ class HermesConversationAgent(ConversationEntity):
                 "I didn't catch that. Could you repeat?",
                 user_input.conversation_id,
             )
+
+        # Enforce a reasonable maximum input length to prevent oversized
+        # WebSocket frames and memory pressure from developer-tool bypasses.
+        if len(text) > MAX_QUERY_TEXT_LENGTH:
+            _LOGGER.warning(
+                "Truncating conversation query from %d to %d chars",
+                len(text),
+                MAX_QUERY_TEXT_LENGTH,
+            )
+            text = text[:MAX_QUERY_TEXT_LENGTH]
 
         conversation_id = user_input.conversation_id
 

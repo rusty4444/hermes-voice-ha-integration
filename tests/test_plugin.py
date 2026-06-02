@@ -990,7 +990,8 @@ class TestSensor:
 
     def test_platform_listed(self):
         init = Path(__file__).parent.parent / "custom_components" / "hermes" / "__init__.py"
-        assert "PLATFORMS: list[Platform] = [Platform.SENSOR]" in init.read_text()
+        assert "Platform.SENSOR" in init.read_text()
+        assert "Platform.CONVERSATION" in init.read_text()
 
 
 class TestIsAvailable:

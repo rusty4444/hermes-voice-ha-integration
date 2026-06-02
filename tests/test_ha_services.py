@@ -28,7 +28,7 @@ def _install_homeassistant_stubs() -> None:
     sys.modules["homeassistant.config_entries"].ConfigEntry = object
     sys.modules["homeassistant.const"].CONF_URL = "url"
     sys.modules["homeassistant.const"].CONF_TOKEN = "token"
-    sys.modules["homeassistant.const"].Platform = SimpleNamespace(SENSOR="sensor")
+    sys.modules["homeassistant.const"].Platform = SimpleNamespace(SENSOR="sensor", CONVERSATION="conversation")
     sys.modules["homeassistant.core"].HomeAssistant = object
     sys.modules["homeassistant.core"].ServiceCall = object
     sys.modules["homeassistant.core"].ServiceResponse = dict

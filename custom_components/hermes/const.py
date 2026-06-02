@@ -32,6 +32,14 @@ DEFAULT_WAKE_WORD_ENGINE = "porcupine"
 DEFAULT_WAKE_WORD = "computer"
 DEFAULT_MEDIA_PLAYER = ""
 DEFAULT_QUERY_LIMIT = 50
+MAX_QUERY_TEXT_LENGTH = 4096
+
+# WebSocket message type constants
+WS_TYPE_ASSIST_QUERY = "assist_query"
+WS_TYPE_ASSIST_RESPONSE = "assist_response"
+WS_TYPE_HERMES_EVENT = "hermes_event"
+WS_TYPE_STATE_ACK = "state_ack"
+WS_TYPE_STATE_CHANGED = "state_changed"
 
 
 def normalize_list(value: object) -> list[str]:

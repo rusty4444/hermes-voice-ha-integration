@@ -25,7 +25,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE, CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL, CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE, CONF_WAKE_WORD, DEFAULT_WAKE_WORD, CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER, normalize_list, normalize_wake_word
+from .const import DOMAIN, CONF_ENTITY_FILTER, DEFAULT_ENTITY_FILTER, CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL, CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE, CONF_TTS_VOICE, DEFAULT_TTS_VOICE, CONF_STT_ENGINE, DEFAULT_STT_ENGINE, CONF_STT_MODEL, DEFAULT_STT_MODEL, CONF_WAKE_WORD_ENGINE, DEFAULT_WAKE_WORD_ENGINE, CONF_WAKE_WORD, DEFAULT_WAKE_WORD, CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER, normalize_list, normalize_wake_word, WS_TYPE_ASSIST_QUERY, WS_TYPE_ASSIST_RESPONSE, WS_TYPE_HERMES_EVENT, WS_TYPE_STATE_ACK, WS_TYPE_STATE_CHANGED
 from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ class HermesBridge:
             return
 
         payload = {
-            "type": "state_changed",
+            "type": WS_TYPE_STATE_CHANGED,
             "entity_id": entity_id,
             "state": new_state.state,
             "attributes": dict(new_state.attributes),
@@ -231,6 +231,19 @@ class HermesBridge:
             ssl_context = _ssl.create_default_context()
             ssl_context.check_hostname = False
             ssl_context.verify_mode = _ssl.CERT_NONE
+            if self.hermes_token:
+                _LOGGER.warning(
+                    "Hermes token configured with verify_ssl=False — "
+                    "token will be sent over plaintext"
+                )
+
+        # Cancel any previous reader task before creating a new connection
+        if self._reader_task and not self._reader_task.done():
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
 
         try:
             self._session = aiohttp.ClientSession()
@@ -245,9 +258,9 @@ class HermesBridge:
                 ssl=ssl_context,
                 heartbeat=30,
             )
-            self._connected = True
-            # Start background reader to drain messages and keep heartbeat alive
+            # Start background reader; set _connected only after reader launches
             self._reader_task = asyncio.create_task(self._ws_reader())
+            self._connected = True
             _LOGGER.info("Connected to Hermes WebSocket at %s", self.hermes_url)
             # Flush any pending messages queued while disconnected
             await _flush_pending(self._ws, self._pending)
@@ -271,12 +284,15 @@ class HermesBridge:
                         _LOGGER.debug("Hermes WS: unparseable message")
                         continue
                     msg_type = data.get("type", "")
-                    if msg_type == "assist_response":
+                    if msg_type == WS_TYPE_ASSIST_RESPONSE:
                         conv_id = data.get("conversation_id", "")
+                        _LOGGER.debug(
+                            "Hermes WS: received assist_response conv_id=%s", conv_id
+                        )
                         future = self._pending_queries.pop(conv_id, None)
                         if future and not future.done():
                             future.set_result(data)
-                    elif msg_type in ("hermes_event", "state_ack"):
+                    elif msg_type in (WS_TYPE_HERMES_EVENT, WS_TYPE_STATE_ACK):
                         pass  # informational; no routing needed
                     else:
                         _LOGGER.debug("Hermes WS: unhandled type=%s", msg_type)
@@ -321,7 +337,7 @@ class HermesBridge:
             "language": language,
         }
 
-        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending_queries[conversation_id] = future
 
         if self._connected and self._ws:
