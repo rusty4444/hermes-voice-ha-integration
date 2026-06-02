@@ -308,7 +308,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "home_assistant"
-        assert data["version"] == "0.0.7"
+        assert data["version"] == "0.0.8"
         assert "on_session_start" in data["hooks"]
 
     def test_voice_stack_plugin_yaml_valid(self):
@@ -318,7 +318,7 @@ class TestPluginRegistration:
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "voice_stack"
-        assert data["version"] == "0.0.7"
+        assert data["version"] == "0.0.8"
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +558,7 @@ class TestObservability:
         assert data["domain"] == "hermes"
         assert data["config_flow"] is True
         assert "iot_class" in data
-        assert data["version"] == "0.0.7"
+        assert data["version"] == "0.0.8"
 
     def test_config_flow_translations_are_packaged_for_ha_ui(self):
         """HA must ship runtime translations, not only source strings.json."""
@@ -607,7 +607,7 @@ class TestAddonStructure:
         with open(config_path) as f:
             data = yaml.safe_load(f)
         assert data["name"] == "Hermes Voice Assistant"
-        assert data["version"] == "0.0.7"
+        assert data["version"] == "0.0.8"
         assert data["slug"] == "hermes_voice"
         assert "arch" in data
         assert "amd64" in data["arch"] or "aarch64" in data["arch"]
@@ -826,7 +826,7 @@ class TestVoicePluginInit:
         assert "HERMES_WAKE_WORD_ENGINE" in data["config"]
         assert "HERMES_HA_WS_PORT" in data["config"]
         assert "HERMES_HA_WS_TOKEN" in data["config"]
-        assert data["version"] == "0.0.7"
+        assert data["version"] == "0.0.8"
 
 
 
@@ -1214,9 +1214,9 @@ class TestCHANGELOG:
     def test_changelog_has_version_entries(self):
         cl = Path(__file__).parent.parent / "CHANGELOG.md"
         content = cl.read_text()
+        assert "## [0.0.8]" in content
         assert "## [0.0.7]" in content
-        assert "## [0.0.1]" in content
-        assert "## [0.2.0]" in content or "## [0.1.0]" in content
+        assert "## [0.0.6]" in content
 
 
 
