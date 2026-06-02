@@ -680,6 +680,22 @@ HASS_URL=http://192.168.1.50:8123
 - Confirm `hacs.json` is at the repository root if using HACS.
 - Confirm the resource URL is `/hermes_static/hermes_action_bar.js`.
 
+### Assist pipeline times out with "Sorry, I couldn't reach Hermes"
+
+This means the HA integration sent an `assist_query` WebSocket message but never received an `assist_response` within 30 seconds.
+
+**Check:**
+- Confirm the Hermes Agent server recognises the `assist_query` message type. If the WebSocket reader discards unknown types, no response is ever sent.
+- Check that the Hermes Agent sends a valid `assist_response` with the same `conversation_id` as the request.
+- The conversation agent expects exactly one response per query — multiple responses for the same ID are silently dropped.
+- See the [Hermes Agent WebSocket message types](#hermes-agent-websocket-message-types) section for the full protocol contract.
+
+**Hermes Agent implementation checklist:**
+1. Handle incoming `{"type": "assist_query", "text": "...", "conversation_id": "...", "language": "..."}`.
+2. Process the query through the LLM pipeline.
+3. Send `{"type": "assist_response", "text": "...", "conversation_id": "...", "speech": {"plain": {"speech": "...", "extra_data": null}}}`.
+4. Echo the `conversation_id` exactly — do not generate a new one.
+
 ### Voice commands transcribe but do not play audio
 
 - Confirm `HERMES_MEDIA_PLAYER` is a real `media_player.*` entity.
