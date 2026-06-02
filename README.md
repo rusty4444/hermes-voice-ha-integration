@@ -313,7 +313,9 @@ Home Assistant  →  http://<hermes-host>:7860  →  /api/hermes/ws
 
 Do **not** enter `http://homeassistant.local:8123` in the Hermes URL field. That URL is only used by Hermes itself when Hermes talks back to Home Assistant via `HASS_URL`.
 
-This integration currently exposes Hermes services, status sensors, and the HA-to-Hermes WebSocket bridge. It does **not** yet register a Home Assistant Assist/conversation agent, so it will not appear in the **Preferred conversation agent** selector until a dedicated conversation platform is added.
+This integration registers a Home Assistant Assist conversation agent (`HermesConversationAgent`) on the `Platform.CONVERSATION` platform and handles both incoming `assist_query` and outgoing `assist_response` WebSocket messages. After setup, Hermes will appear in the **Preferred conversation agent** selector under **Settings → Voice assistants**.
+
+> **Important:** The Hermes Agent server must handle the `assist_query` and `assist_response` WebSocket message types for the conversation pipeline to work end-to-end. The HA integration forwards queries and awaits responses, but if the Hermes Agent does not recognise these message types, conversation queries time out after 30 seconds. See [Hermes Agent WebSocket message types](#hermes-agent-websocket-message-types) below for the protocol contract.
 
 5. Submit.
 
@@ -710,13 +712,86 @@ Check:
 
 ---
 
-## Known limitations in `v0.0.7`
+## Hermes Agent WebSocket message types
+
+The Home Assistant integration communicates with the Hermes Agent server over WebSocket. For the Assist pipeline conversation agent to function, the Hermes Agent server **must** handle these message types. Without them, the pipeline handshake succeeds but all conversation queries time out after 30 seconds.
+
+### `assist_query` — incoming (Hermes Agent receives)
+
+The HA integration sends this when a user speaks or types to the Assist pipeline with Hermes selected as the conversation agent:
+
+```json
+{
+  "type": "assist_query",
+  "text": "What's the temperature in the living room?",
+  "conversation_id": "01JQABCDEFGH0000000000000000",
+  "language": "en"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | `string` | Always `"assist_query"`. |
+| `text` | `string` | The user's input text from the Assist pipeline. |
+| `conversation_id` | `string` | HA-generated ID scoped to a conversation turn. Echo it back unchanged on the response. |
+| `language` | `string` | Language code from the Assist pipeline (e.g. `"en"`). |
+
+### `assist_response` — outgoing (Hermes Agent sends)
+
+After processing the query, the Hermes Agent server must send back this response:
+
+```json
+{
+  "type": "assist_response",
+  "text": "The living room is currently 22°C.",
+  "conversation_id": "01JQABCDEFGH0000000000000000",
+  "speech": {
+    "plain": {
+      "speech": "The living room is currently 22°C.",
+      "extra_data": null
+    }
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `type` | `string` | Yes | Always `"assist_response"`. |
+| `text` | `string` | Yes | The response text shown in the Assist UI. |
+| `conversation_id` | `string` | Yes | MUST match the `conversation_id` from the request. |
+| `speech` | `object` | Yes | HA `AssistResponseType` dict. At minimum, provide `speech.plain.speech` with the spoken text. Set `extra_data` to `null` unless you have structured response data. |
+| `response_type` | `string` | No | Explicit response type. Defaults to `"action_done"`. Use `"query_answer"` for informational responses. |
+
+### Conversation state lifecycle
+
+1. HA Assist pipeline receives user input (voice or text).
+2. HA sends `assist_query` WebSocket message to Hermes Agent.
+3. Hermes Agent processes the query (LLM, tool calls, HA service calls).
+4. Hermes Agent sends `assist_response` with the answer.
+5. HA Assist pipeline renders the response in its UI and/or speaks it via TTS.
+
+If no response is received within 30 seconds, the pipeline falls back to an error speech message ("Sorry, I couldn't reach Hermes").
+
+### Implementation reference
+
+The reader task in `custom_components/hermes/__init__.py` routes incoming messages by `type`. When `type == "assist_response"`, the message is resolved to the pending `asyncio.Future` created by `HermesConversationAgent.async_process()`. The conversation agent uses `_send_and_wait()` to send the query and await the response future.
+
+### Known limitations on the Hermes Agent side
+
+- If the Hermes Agent does not recognise the `assist_query` type, the WebSocket reader discards it as unknown and no response is ever sent → 30-second timeout.
+- If the Hermes Agent sends a response with a mismatched `conversation_id`, the future lookup in the HA integration fails and the response is dropped.
+- The conversation agent expects exactly one `assist_response` per `assist_query`. Sending multiple responses for the same `conversation_id` will deliver only the first one.
+
+---
+
+## Known limitations in `v0.0.8`
 
 - The voice stack is usable as engine wrappers and Hermes tools, but room-grade voice satellite UX still needs more work.
 - TTS audio delivery to HA media players may need an HTTP/media bridge depending on deployment topology.
 - The add-on scaffold may need environment-specific build adjustments before it is suitable as the primary install path for every HA setup.
 - The Lovelace action bar is intentionally minimal.
 - The HA custom integration and Hermes plugins are released together in one repo for now; future releases may split packaging by install target.
+- The `assist_query` / `assist_response` WebSocket message types must be implemented on the Hermes Agent server side for the Assist pipeline conversation agent to work end-to-end. See [Hermes Agent WebSocket message types](#hermes-agent-websocket-message-types) above for the full protocol contract.
 
 
 ---
