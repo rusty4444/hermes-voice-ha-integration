@@ -11,11 +11,13 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from datetime import timedelta
 from typing import Any
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_URL, CONF_TOKEN, Platform
 from homeassistant.core import HomeAssistant
@@ -28,7 +30,7 @@ from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.CONVERSATION]
 
 # Minimum interval between state-change pushes (seconds)
 _PUSH_INTERVAL = timedelta(seconds=0.2)
@@ -153,6 +155,9 @@ class HermesBridge:
         self._total_interactions = 0
         self._total_errors = 0
         self._voice_ready = False
+        self._reader_task: asyncio.Task | None = None
+        # Map of conversation_id → asyncio.Future for routing Hermes responses
+        self._pending_queries: dict[str, asyncio.Future] = {}
 
     @property
     def connected(self) -> bool:
@@ -169,7 +174,6 @@ class HermesBridge:
             return
 
         # Rate limit per entity
-        import time
         now = time.monotonic()
         last = _LAST_PUSH.get(entity_id, 0)
         if now - last < _PUSH_INTERVAL.total_seconds():
@@ -220,7 +224,6 @@ class HermesBridge:
 
     async def async_connect(self) -> None:
         """Connect to Hermes Agent WebSocket."""
-        import aiohttp
         import ssl as _ssl
 
         ssl_context: _ssl.SSLContext | None = None
@@ -243,6 +246,8 @@ class HermesBridge:
                 heartbeat=30,
             )
             self._connected = True
+            # Start background reader to drain messages and keep heartbeat alive
+            self._reader_task = asyncio.create_task(self._ws_reader())
             _LOGGER.info("Connected to Hermes WebSocket at %s", self.hermes_url)
             # Flush any pending messages queued while disconnected
             await _flush_pending(self._ws, self._pending)
@@ -251,9 +256,102 @@ class HermesBridge:
             self._connected = False
 
 
+    async def _ws_reader(self) -> None:
+        """Background task: continuously drain messages from Hermes WebSocket.
+
+        Keeps the aiohttp heartbeat handling alive and routes
+        conversation responses back to pending query futures.
+        """
+        try:
+            async for msg in self._ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    try:
+                        data = json.loads(msg.data)
+                    except json.JSONDecodeError:
+                        _LOGGER.debug("Hermes WS: unparseable message")
+                        continue
+                    msg_type = data.get("type", "")
+                    if msg_type == "assist_response":
+                        conv_id = data.get("conversation_id", "")
+                        future = self._pending_queries.pop(conv_id, None)
+                        if future and not future.done():
+                            future.set_result(data)
+                    elif msg_type in ("hermes_event", "state_ack"):
+                        pass  # informational; no routing needed
+                    else:
+                        _LOGGER.debug("Hermes WS: unhandled type=%s", msg_type)
+                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                    _LOGGER.info("Hermes WebSocket closed by server")
+                    break
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    _LOGGER.warning("Hermes WebSocket error")
+                    break
+        except asyncio.CancelledError:
+            _LOGGER.debug("Hermes WS reader cancelled")
+        except Exception as exc:
+            _LOGGER.warning("Hermes WS reader exception: %s", exc)
+        finally:
+            self._connected = False
+            # Resolve any pending futures as failed
+            for future in self._pending_queries.values():
+                if not future.done():
+                    future.set_exception(ConnectionError("Hermes WebSocket disconnected"))
+            self._pending_queries.clear()
+
+    async def async_send_conversation_query(
+        self,
+        text: str,
+        conversation_id: str | None = None,
+        language: str = "en",
+    ) -> dict[str, Any]:
+        """Send a conversation query to Hermes and wait for the response.
+
+        Returns the response dict from Hermes (contains 'text' and
+        optionally 'speech' keys).
+        """
+        import uuid
+
+        if conversation_id is None:
+            conversation_id = str(uuid.uuid4())
+
+        payload = {
+            "type": "assist_query",
+            "text": text,
+            "conversation_id": conversation_id,
+            "language": language,
+        }
+
+        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        self._pending_queries[conversation_id] = future
+
+        if self._connected and self._ws:
+            try:
+                await self._ws.send_json(payload)
+            except Exception as exc:
+                self._pending_queries.pop(conversation_id, None)
+                _LOGGER.warning("Failed to send conversation query: %s", exc)
+                raise ConnectionError(f"Failed to send to Hermes: {exc}") from exc
+        else:
+            self._pending_queries.pop(conversation_id, None)
+            raise ConnectionError("Hermes WebSocket not connected")
+
+        try:
+            result = await asyncio.wait_for(future, timeout=30.0)
+            return result
+        except asyncio.TimeoutError:
+            self._pending_queries.pop(conversation_id, None)
+            raise TimeoutError("Hermes did not respond within 30 seconds")
+
     async def async_shutdown(self) -> None:
         """Clean up connections."""
         self._connected = False
+        if self._reader_task and not self._reader_task.done():
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+            self._reader_task = None
         if self._ws:
             await self._ws.close()
             self._ws = None
