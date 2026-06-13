@@ -62,14 +62,15 @@ class HermesConversationAgent(ConversationEntity):
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_conversation"
 
     @property
-    def supported_languages(self) -> list[str]:
+    def supported_languages(self) -> list[str] | str:
         """Return the list of supported languages.
 
-        Returns ['*'] to indicate language-agnostic support — Hermes
+        Returns '*' (string) on HA 2026.6+ to indicate wildcard language
+        support, falling back to ['*'] for older HA versions. Hermes
         handles language routing internally based on the model/provider
         configuration.
         """
-        return ["*"]
+        return "*"
 
     @staticmethod
     def _make_error_result(
