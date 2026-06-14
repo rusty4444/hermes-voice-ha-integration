@@ -27,7 +27,7 @@ This repository is a bundle of three pieces:
 
 The Python wheel is intentionally plugin-focused. Use the GitHub tag or source distribution for the full HACS/custom-component/add-on bundle.
 
-> **Release:** `v0.0.7` — fixes user-plugin import loading, README install paths, and Home Assistant voice-bridge setup guidance.
+> **Release:** `v0.0.10` — adds a packaged Hermes plugin installer so upgrades replace stale plugin files cleanly.
 
 ---
 
@@ -146,22 +146,40 @@ Keep this token private. It can control your Home Assistant instance with your a
 
 ## Step 3 — Install the Hermes plugins
 
-Clone this repository:
+### Recommended: install from the Python package
+
+Install or upgrade the package directly from GitHub, then run the bundled plugin installer:
+
+```bash
+python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.10"
+hermes-ha-install-plugins
+```
+
+The installer copies the packaged `home_assistant` and `voice_stack` plugin directories into `~/.hermes/hermes-agent/plugins`. On upgrade it replaces the existing plugin directories first, so files removed from newer releases do not remain behind from older manual copies.
+
+If your Hermes Agent profile lives somewhere else, pass it explicitly:
+
+```bash
+hermes-ha-install-plugins --profile /path/to/hermes-agent-profile
+```
+
+### Manual source install
+
+If you prefer to inspect or edit the source locally, clone the repository and copy the plugins yourself:
 
 ```bash
 mkdir -p ~/dev
 cd ~/dev
 git clone https://github.com/rusty4444/hermes-voice-ha-integration.git
 cd hermes-voice-ha-integration
-```
 
-Copy the plugins into your Hermes plugin directory:
-
-```bash
 mkdir -p ~/.hermes/hermes-agent/plugins
+rm -rf ~/.hermes/hermes-agent/plugins/home_assistant ~/.hermes/hermes-agent/plugins/voice_stack
 cp -R plugins/home_assistant ~/.hermes/hermes-agent/plugins/home_assistant
 cp -R plugins/voice_stack ~/.hermes/hermes-agent/plugins/voice_stack
 ```
+
+The `rm -rf` lines are intentional during manual upgrades: they avoid leaving stale files behind if a release removes or renames plugin files.
 
 Configure Home Assistant connection details for Hermes. The plugin reads standard environment variables:
 

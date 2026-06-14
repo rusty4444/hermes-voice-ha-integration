@@ -2,6 +2,16 @@
 
 All notable changes to the hermes-voice-ha-integration project.
 
+## [0.0.10] — 2026-06-15
+
+### Added
+- Packaged `hermes-ha-install-plugins` command for installing the bundled Hermes Agent plugins from the Python wheel or a direct GitHub pip install.
+- Installer tests covering replacement of existing plugin directories and dry-run behaviour.
+
+### Changed
+- Documented the pip-based plugin install and upgrade path, including why existing plugin directories are replaced to avoid stale files.
+- Release metadata is now synchronised across the Python package, HACS manifest, add-on config, and plugin manifests.
+
 ## [0.0.9] — 2026-06-14
 
 ### Fixed

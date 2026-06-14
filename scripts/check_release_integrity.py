@@ -62,6 +62,7 @@ REQUIRED_FILES = [
 ]
 
 WHEEL_REQUIRED = [
+    "plugins/install_hermes_ha_plugins.py",
     "plugins/home_assistant/plugin.yaml",
     "plugins/home_assistant/README.md",
     "plugins/voice_stack/plugin.yaml",

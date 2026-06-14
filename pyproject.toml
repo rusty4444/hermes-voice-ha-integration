@@ -1,6 +1,6 @@
 [project]
 name = "hermes-voice-ha-integration"
-version = "0.0.8"
+version = "0.0.10"
 description = "Home Assistant voice stack integration for Hermes Agent"
 authors = [{name = "Sam Russell", email = "rusty4444@users.noreply.github.com"}]
 license = "MIT"
@@ -10,6 +10,9 @@ dependencies = [
     "aiohttp>=3.9",
     "pydantic>=2.0",
 ]
+
+[project.scripts]
+hermes-ha-install-plugins = "plugins.install_hermes_ha_plugins:main"
 
 [project.optional-dependencies]
 dev = [
