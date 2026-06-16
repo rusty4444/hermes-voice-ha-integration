@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build PyYAML
+
+      - name: Run release integrity checks
+        run: python scripts/check_release_integrity.py --tag "${GITHUB_REF_NAME}"
+
+      - name: Build distribution packages
+        run: python -m build --sdist --wheel
+
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python -c "
+          import re
+          changelog = open('CHANGELOG.md').read()
+          pattern = rf'## \[{re.escape(VERSION)}\].*?(?=## \[|\Z)'
+          m = re.search(pattern, changelog, re.DOTALL)
+          if m:
+              print(m.group(0).strip())
+          " > /tmp/changelog-section.md
+          echo "CHANGELOG=$(cat /tmp/changelog-section.md)" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ github.ref_name }}"
+          body_path: /tmp/changelog-section.md
+          files: dist/*
+          draft: false
+          prerelease: false
+          generate_release_notes: false
