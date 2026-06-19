@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import inspect
 import json
 import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Optional
 
 try:
     from aiohttp import WSMsgType, web
@@ -40,6 +41,9 @@ _START_TIME = time.monotonic()
 _MESSAGE_COUNTERS: dict[str, int] = {}
 _COUNTER_LOCK = threading.Lock()
 _VOICE_ACTION_RESERVED_KEYS = {"type", "action", "args"}
+_MAX_ASSIST_QUERY_CHARS = 4096
+AssistQueryHandler = Callable[[dict[str, Any]], dict[str, Any] | str | Awaitable[dict[str, Any] | str]]
+_ASSIST_QUERY_HANDLER: Optional[AssistQueryHandler] = None
 
 
 def _record_message(msg_type: str) -> None:
@@ -84,6 +88,38 @@ def _with_request_id(payload: dict[str, Any], response: dict[str, Any]) -> dict[
     if "id" in payload and "id" not in response:
         response = {**response, "id": payload["id"]}
     return response
+
+
+def set_assist_query_handler(handler: Optional[AssistQueryHandler]) -> None:
+    """Install the process-local handler for HA Assist conversation queries."""
+    global _ASSIST_QUERY_HANDLER
+    _ASSIST_QUERY_HANDLER = handler
+
+
+def _normalise_assist_response(
+    payload: dict[str, Any],
+    result: dict[str, Any] | str,
+) -> dict[str, Any]:
+    """Coerce a handler result into the HA-side assist_response shape."""
+    conversation_id = payload.get("conversation_id")
+    language = payload.get("language") or "en"
+    if isinstance(result, str):
+        text = result.strip()
+        response: dict[str, Any] = {"ok": True, "text": text}
+    else:
+        response = dict(result)
+        text = str(response.get("text") or response.get("message") or "").strip()
+        response["text"] = text
+        response.setdefault("ok", True)
+
+    response["type"] = "assist_response"
+    response.setdefault("conversation_id", conversation_id)
+    response.setdefault("language", language)
+    response.setdefault(
+        "speech",
+        {"plain": {"speech": response.get("text", ""), "extra_data": None}},
+    )
+    return _with_request_id(payload, response)
 
 
 def _json_loads_maybe(value: Any) -> dict[str, Any]:
@@ -165,6 +201,58 @@ def handle_voice_action(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "action": action, "error": str(exc)}
 
 
+async def handle_assist_query(payload: dict[str, Any]) -> dict[str, Any]:
+    """Route a Home Assistant Assist query through the registered Hermes handler."""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        return _normalise_assist_response(
+            payload,
+            {
+                "ok": False,
+                "text": "I didn't catch that. Could you repeat?",
+                "error": "missing_text",
+            },
+        )
+    if len(text) > _MAX_ASSIST_QUERY_CHARS:
+        payload = {**payload, "text": text[:_MAX_ASSIST_QUERY_CHARS]}
+
+    handler = _ASSIST_QUERY_HANDLER
+    if handler is None:
+        return _normalise_assist_response(
+            payload,
+            {
+                "ok": False,
+                "text": "Hermes Assist is not configured yet.",
+                "error": "assist_handler_unavailable",
+            },
+        )
+
+    try:
+        result = handler(payload)
+        if inspect.isawaitable(result):
+            result = await result
+        return _normalise_assist_response(payload, result)
+    except Exception as exc:  # pragma: no cover - defensive runtime guard
+        logger.exception("assist_query failed")
+        return _normalise_assist_response(
+            payload,
+            {
+                "ok": False,
+                "text": "Sorry, Hermes is not responding right now.",
+                "error": str(exc),
+            },
+        )
+
+
+async def async_handle_ha_ws_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Async dispatcher for payloads that may need an async Assist response."""
+    msg_type = str(payload.get("type", "")).strip().lower()
+    if msg_type == "assist_query":
+        _record_message(msg_type)
+        return await handle_assist_query(payload)
+    return handle_ha_ws_payload(payload)
+
+
 def handle_ha_ws_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Handle one JSON payload from Home Assistant."""
     msg_type = str(payload.get("type", "")).strip().lower()
@@ -173,6 +261,13 @@ def handle_ha_ws_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if msg_type == "voice_action":
         result = handle_voice_action(payload)
         return _with_request_id(payload, {"type": "voice_action_result", **result})
+
+    if msg_type == "assist_query":
+        return _with_request_id(payload, {
+            "type": "error",
+            "ok": False,
+            "error": "assist_query requires the async WebSocket dispatcher",
+        })
 
     if msg_type == "state_changed":
         # P0 receiver behaviour: acknowledge state pushes so HA knows Hermes
@@ -317,7 +412,7 @@ class HermesHAWebSocketServer:
                         payload = json.loads(msg.data)
                         if not isinstance(payload, dict):
                             raise ValueError("payload must be a JSON object")
-                        response = handle_ha_ws_payload(payload)
+                        response = await async_handle_ha_ws_payload(payload)
                     except Exception as exc:
                         response = {"type": "error", "ok": False, "error": str(exc)}
                     await ws.send_json(response)

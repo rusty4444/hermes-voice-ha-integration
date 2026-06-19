@@ -12,6 +12,8 @@ Registered tools:
 
 from __future__ import annotations
 
+import asyncio
+import importlib
 import json
 import logging
 import os
@@ -113,6 +115,64 @@ def _ensure_voice_ready() -> bool:
     if not _voice_ready.is_set():
         return _init_engines()
     return True
+
+
+_ASSIST_AGENT_INSTRUCTIONS = """You are handling a Home Assistant Assist voice request through Hermes.
+Reply in one short, speakable sentence unless you need a brief clarification.
+Use Home Assistant tools when controlling or checking devices. Do not use markdown.
+"""
+
+
+def _assist_toolsets() -> list[str] | None:
+    """Return explicit toolsets for HA Assist turns, or None for user config."""
+    raw = os.getenv("HERMES_HA_ASSIST_TOOLSETS", "homeassistant").strip()
+    if raw.lower() in {"", "config", "default"}:
+        return None
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _run_assist_agent(text: str, conversation_id: str | None, language: str) -> str:
+    """Run one non-interactive Hermes turn for an HA Assist query."""
+    _run_agent = getattr(importlib.import_module("hermes_cli.oneshot"), "_run_agent")
+
+    # HA Assist has no interactive approval channel. Home Assistant service
+    # safety is still enforced by the home_assistant plugin allow/block lists.
+    os.environ.setdefault("HERMES_YOLO_MODE", "1")
+    os.environ.setdefault("HERMES_ACCEPT_HOOKS", "1")
+
+    toolsets = _assist_toolsets()
+    prompt = (
+        f"{_ASSIST_AGENT_INSTRUCTIONS}\n"
+        f"Language: {language or 'en'}\n"
+        f"Conversation ID: {conversation_id or 'new'}\n\n"
+        f"User said: {text}"
+    )
+    return _run_agent(
+        prompt,
+        toolsets=toolsets,
+        use_config_toolsets=toolsets is None,
+    )
+
+
+async def _handle_assist_query(payload: dict[str, Any]) -> dict[str, Any]:
+    """Handle HA Assist `assist_query` messages and return `assist_response`."""
+    text = str(payload.get("text") or "").strip()
+    conversation_id = payload.get("conversation_id")
+    language = str(payload.get("language") or "en")
+    timeout = float(os.getenv("HERMES_HA_ASSIST_TIMEOUT", "27"))
+
+    response_text = await asyncio.wait_for(
+        asyncio.to_thread(_run_assist_agent, text, conversation_id, language),
+        timeout=timeout,
+    )
+    response_text = (response_text or "").strip() or "I processed that, but got no response."
+    return {
+        "ok": True,
+        "text": response_text,
+        "conversation_id": conversation_id,
+        "language": language,
+        "speech": {"plain": {"speech": response_text, "extra_data": None}},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -459,7 +519,8 @@ def register(ctx) -> None:
     # port is already occupied or aiohttp is unavailable, the warning is logged
     # and normal tool registration still succeeds.
     try:
-        from .ws_receiver import start_ws_receiver
+        from .ws_receiver import set_assist_query_handler, start_ws_receiver
+        set_assist_query_handler(_handle_assist_query)
         start_ws_receiver()
     except Exception as exc:
         logger.warning("Hermes HA WebSocket receiver did not start: %s", exc)

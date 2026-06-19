@@ -101,6 +101,42 @@ Hermes forwards all top-level fields except `type`, `action`, and `args` into th
 
 Response type: `voice_action_result`.
 
+### `assist_query`
+
+Routes a Home Assistant Assist pipeline utterance to Hermes and returns an
+`assist_response` that Home Assistant can speak through the configured pipeline.
+The voice stack plugin installs this handler when it starts the receiver.
+
+```json
+{
+  "id": "assist-1",
+  "type": "assist_query",
+  "text": "turn on the kitchen light",
+  "conversation_id": "ha-conversation-id",
+  "language": "en"
+}
+```
+
+Response type: `assist_response`.
+
+```json
+{
+  "id": "assist-1",
+  "type": "assist_response",
+  "ok": true,
+  "conversation_id": "ha-conversation-id",
+  "language": "en",
+  "text": "Done. The kitchen light is on.",
+  "speech": {"plain": {"speech": "Done. The kitchen light is on.", "extra_data": null}}
+}
+```
+
+By default Assist turns run with the `homeassistant` toolset so the agent can
+use the HA service tools. Set `HERMES_HA_ASSIST_TOOLSETS=config` to use the
+user's configured CLI toolsets instead, or set a comma-separated list such as
+`homeassistant,web`. `HERMES_HA_ASSIST_TIMEOUT` controls the receiver-side
+wait time in seconds before a fallback error response is returned.
+
 ## Error shape
 
 Unsupported message types and handler failures return:
