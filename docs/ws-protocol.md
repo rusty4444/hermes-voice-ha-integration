@@ -101,6 +101,39 @@ Hermes forwards all top-level fields except `type`, `action`, and `args` into th
 
 Response type: `voice_action_result`.
 
+### `assist_query`
+
+Home Assistant Assist sends transcribed user text to Hermes and waits for a
+matching `assist_response`. The receiver routes this through the voice stack
+plugin's Hermes LLM handler, preserving `conversation_id` for the HA-side future.
+
+```json
+{
+  "id": "assist-1",
+  "type": "assist_query",
+  "text": "turn on the kitchen lights",
+  "conversation_id": "01J...",
+  "language": "en"
+}
+```
+
+Response type: `assist_response`.
+
+```json
+{
+  "id": "assist-1",
+  "type": "assist_response",
+  "ok": true,
+  "text": "Done.",
+  "conversation_id": "01J...",
+  "language": "en",
+  "speech": {"plain": {"speech": "Done."}}
+}
+```
+
+The receiver returns an `assist_response` even when the handler is unavailable or
+fails, so Home Assistant receives a spoken fallback instead of timing out.
+
 ## Error shape
 
 Unsupported message types and handler failures return:
