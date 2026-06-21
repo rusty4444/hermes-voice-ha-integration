@@ -33,9 +33,10 @@ ws://host:7860/api/hermes/ws ──► HermesHAWebSocketServer._handle_ws
                                 └─ handle_voice_action()
                                     └─ _handle_voice_{enable,disable,status}
                                          └─ (returns JSON string)
-  {type: "state_changed"} ──► ack()         ← context buffer | update | store        ──► Hermes event bus  ──► tool_enabled
-  {type: "ping"} ──► pong()
-  {type: "status"} ──► status({uptime, auth_required, counters, connections})
+  {type: "state_changed"} ─► ack()         ← context buffer | update | store        ──► Hermes event bus  ──► tool_enabled
+  {type: "assist_query"} ─► ctx.llm.acomplete() ─► {type: "assist_response"}
+  {type: "ping"} ─► pong()
+  {type: "status"} ─► status({uptime, auth_required, counters, connections})
 ```
 
 ---

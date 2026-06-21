@@ -333,6 +333,45 @@ def _handle_voice_prompt(args: dict, **kw) -> str:
     return json.dumps({"ok": True, "prompt": prompt})
 
 
+async def _handle_assist_query_with_llm(ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """Turn an HA Assist query into a Hermes LLM response.
+
+    This handles the HA-side ``assist_query`` message introduced by the
+    conversation platform. It intentionally uses ``ctx.llm`` rather than a
+    placeholder acknowledgement so Home Assistant receives a real spoken reply.
+    """
+    text = str(payload.get("text") or "").strip()
+    language = str(payload.get("language") or "en")
+    conversation_id = payload.get("conversation_id")
+
+    result = await ctx.llm.acomplete(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are Hermes, responding through Home Assistant Assist. "
+                    "Reply naturally and concisely for text-to-speech. "
+                    "If the request needs unavailable context, ask one brief clarification."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Language: {language}\nUser request: {text}",
+            },
+        ],
+        max_tokens=512,
+        temperature=0.2,
+        purpose="voice_stack.assist_query",
+    )
+    return {
+        "ok": True,
+        "text": (result.text or "").strip(),
+        "conversation_id": conversation_id,
+        "provider": getattr(result, "provider", None),
+        "model": getattr(result, "model", None),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool schemas
 # ---------------------------------------------------------------------------
@@ -459,7 +498,8 @@ def register(ctx) -> None:
     # port is already occupied or aiohttp is unavailable, the warning is logged
     # and normal tool registration still succeeds.
     try:
-        from .ws_receiver import start_ws_receiver
+        from .ws_receiver import set_assist_query_handler, start_ws_receiver
+        set_assist_query_handler(lambda payload: _handle_assist_query_with_llm(ctx, payload))
         start_ws_receiver()
     except Exception as exc:
         logger.warning("Hermes HA WebSocket receiver did not start: %s", exc)
