@@ -30,7 +30,8 @@ from .frontend import async_register_resources as _register_frontend
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.CONVERSATION]
+_CONVERSATION_PLATFORM = getattr(Platform, "CONVERSATION", "conversation")
+PLATFORMS: list[Platform | str] = [Platform.SENSOR, _CONVERSATION_PLATFORM]
 
 # Minimum interval between state-change pushes (seconds)
 _PUSH_INTERVAL = timedelta(seconds=0.2)

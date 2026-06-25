@@ -10,7 +10,31 @@ import pytest
 
 
 def _install_homeassistant_stubs() -> None:
-    """Install minimal HA module stubs so custom-component helpers can import."""
+    """Install minimal HA stubs only when Home Assistant is unavailable.
+
+    The full test suite may run with pytest-homeassistant-custom-component,
+    which imports real Home Assistant modules during fixture setup. Installing
+    partial stubs in that environment replaces ``homeassistant.const.Platform``
+    with a two-value SimpleNamespace and breaks HA's own imports. Prefer the
+    real package when present; keep the lightweight stubs for minimal plugin-only
+    test environments.
+    """
+    try:
+        import homeassistant.components.http as ha_http
+        import homeassistant.config_entries  # noqa: F401
+        import homeassistant.const as ha_const
+        import homeassistant.core  # noqa: F401
+        import homeassistant.helpers.entity  # noqa: F401
+        import homeassistant.helpers.event  # noqa: F401
+        import homeassistant.helpers.typing  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        if hasattr(ha_const, "Platform") and hasattr(ha_const.Platform, "SENSOR"):
+            if not hasattr(ha_http, "StaticPathConfig"):
+                setattr(ha_http, "StaticPathConfig", lambda *a, **k: (a, k))
+            return
+
     modules = {
         "homeassistant": ModuleType("homeassistant"),
         "homeassistant.config_entries": ModuleType("homeassistant.config_entries"),
