@@ -2,6 +2,12 @@
 
 All notable changes to the hermes-voice-ha-integration project.
 
+## [0.0.12] — 2026-06-26
+
+### Fixed
+- Bumped release metadata across the Python package, HACS manifest, add-on config, and bundled Hermes plugins so users can install a version newer than the stale `v0.0.11` tag.
+- Documented the current install tag for the Hermes-side `assist_query` receiver added in PR #35, avoiding the Home Assistant Assist timeout path reported in issue #33.
+
 ## [0.0.10] — 2026-06-15
 
 ### Added
