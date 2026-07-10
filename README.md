@@ -92,6 +92,17 @@ Home Assistant
 | `voice_listen` | One-shot record + transcription. |
 | `voice_prompt` | Build the voice-optimised prompt with HA context. |
 
+### If you already use Hermes' bundled Home Assistant integration
+
+This project and Hermes' bundled Home Assistant integration can run side by side:
+
+- the bundled integration lets Hermes talk to Home Assistant from inside Hermes chats and skills
+- this project lets Home Assistant talk back to Hermes, including the Assist conversation-agent bridge, status sensors, WebSocket lifecycle, and optional voice-stack helpers
+- existing skills that call the bundled `ha_get_state`, `ha_call_service`, or other built-in HA tools should keep working because this package installs separate plugin directories and does not replace the bundled integration
+- if both integrations expose similarly named tools in your Hermes profile, keep using the tool names your existing skills already reference, or disable one plugin explicitly in `~/.hermes/config.yaml` if you want to avoid overlap
+
+In short: install this when you want Home Assistant to use Hermes as a voice/chat brain. Keep the bundled integration when you want Hermes to operate Home Assistant as a tool provider.
+
 ---
 
 ## Prerequisites
