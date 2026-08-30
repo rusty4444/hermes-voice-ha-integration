@@ -235,11 +235,19 @@ Restart Hermes after changing plugins or `.env`.
 **How the WebSocket receiver starts:** The WebSocket receiver does not require a standalone `server.py` file. It starts automatically when the `voice_stack` plugin loads. After restarting Hermes, check that the WebSocket is active:
 
 ```bash
-# Confirm the plugin is loaded
-hermes plugins | grep voice_stack
+# Confirm the plugin is loaded: run `hermes plugins` and check that
+# voice_stack appears in the list (it's an interactive prompt, so piping
+# through grep won't work).
+hermes plugins
 
-# Test the WebSocket endpoint (replace with your Hermes host/port)
-curl -N --no-buffer -H "Accept: text/event-stream" http://localhost:7860/api/hermes/ws
+# Test the WebSocket endpoint (replace with your Hermes host/port).
+# If HERMES_HA_WS_TOKEN, API_SERVER_KEY, or HERMES_API_KEY is set in your
+# ~/.hermes/.env, include it as a bearer token or you'll see
+# "Invalid bearer token":
+curl -N --no-buffer \
+  -H "Accept: text/event-stream" \
+  -H "Authorization: Bearer <YOUR_TOKEN>" \
+  http://localhost:7860/api/hermes/ws
 ```
 
 The `voice_stack` plugin starts a small HA-facing WebSocket receiver at:
