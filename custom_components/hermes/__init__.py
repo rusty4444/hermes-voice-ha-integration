@@ -157,6 +157,7 @@ class HermesBridge:
         self._total_errors = 0
         self._voice_ready = False
         self._reader_task: asyncio.Task | None = None
+        self._shutdown = False  # set True during unload to stop auto-reconnect
         # Map of conversation_id → asyncio.Future for routing Hermes responses
         self._pending_queries: dict[str, asyncio.Future] = {}
 
@@ -315,6 +316,45 @@ class HermesBridge:
                     future.set_exception(ConnectionError("Hermes WebSocket disconnected"))
             self._pending_queries.clear()
 
+            # Auto-reconnect: Hermes gateway restarts drop this WebSocket (the
+            # plugin runs as a subprocess that dies on gateway restart). Reloading
+            # the integration was the only fix before — now reconnect here with
+            # backoff instead. Stops cleanly when the bridge is being shut down.
+            # NB: the reader task ref is nulled first so async_connect doesn't
+            # try to await THIS task (which would self-deadlock).
+            if not self._shutdown:
+                await self._auto_reconnect()
+
+
+    async def _auto_reconnect(self) -> None:
+        """Reconnect the Hermes WebSocket with exponential backoff.
+
+        Called from the reader task's ``finally`` after the connection drops.
+        Keeps trying for up to ~13 attempts (5s,10s,...,60s backoff, ~5min cap)
+        until the bridge is shut down or a connection succeeds.
+        """
+        self._reader_task = None
+        _LOGGER.warning("Hermes WebSocket dropped; auto-reconnecting")
+        for attempt in range(1, 13):
+            if self._shutdown:
+                return
+            delay = min(60, 5 * attempt)
+            await asyncio.sleep(delay)
+            if self._shutdown:
+                return
+            try:
+                await self.async_connect()
+                if self._connected:
+                    _LOGGER.info("Hermes WebSocket reconnected")
+                    return
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                _LOGGER.warning(
+                    "Hermes WS reconnect attempt %d failed: %s", attempt, exc
+                )
+        _LOGGER.warning("Hermes WS reconnect attempts exhausted")
+
     async def async_send_conversation_query(
         self,
         text: str,
@@ -361,6 +401,7 @@ class HermesBridge:
 
     async def async_shutdown(self) -> None:
         """Clean up connections."""
+        self._shutdown = True
         self._connected = False
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
