@@ -67,6 +67,7 @@ _install_homeassistant_stubs()
 
 from custom_components.hermes.const import DOMAIN, normalize_wake_word
 from custom_components.hermes import services as hermes_services
+from custom_components.hermes.frontend import async_register_resources
 
 
 class FakeServiceRegistry:
@@ -146,6 +147,59 @@ class FakeBridge:
 
     def status_snapshot(self) -> list[dict[str, Any]]:
         return [{"entity_id": "sensor.hermes_voice_ready", "state": "off", "attributes": {}}]
+
+
+class FakeHttp:
+    """Record or fail static-path registrations."""
+
+    def __init__(self, error: RuntimeError | None = None) -> None:
+        self.calls = 0
+        self.error = error
+
+    async def async_register_static_paths(self, paths: list[Any]) -> None:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+
+
+@pytest.mark.asyncio
+async def test_frontend_static_path_is_registered_once() -> None:
+    """Config-entry reloads must not register the same aiohttp route twice."""
+    http = FakeHttp()
+    hass = SimpleNamespace(data={}, http=http)
+
+    await async_register_resources(hass)
+    await async_register_resources(hass)
+
+    assert http.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_frontend_tolerates_an_existing_static_route() -> None:
+    """A route left by an earlier setup must not abort integration setup."""
+    http = FakeHttp(
+        RuntimeError(
+            "Added route will never be executed, method GET is already registered"
+        )
+    )
+    hass = SimpleNamespace(data={}, http=http)
+
+    await async_register_resources(hass)
+    await async_register_resources(hass)
+
+    assert http.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_frontend_does_not_hide_unrelated_registration_errors() -> None:
+    """Only the known duplicate-route error is safe to suppress."""
+    http = FakeHttp(RuntimeError("static path is unreadable"))
+    hass = SimpleNamespace(data={}, http=http)
+
+    with pytest.raises(RuntimeError, match="static path is unreadable"):
+        await async_register_resources(hass)
+
+    assert http.calls == 1
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,7 @@ _CARD_NAME = "hermes-action-bar"
 
 # hacsfiles resource path  (= what appears after /hacsfiles/ in card type)
 _STATIC_URL = "/hermes_static/hermes_action_bar.js"
+_STATIC_PATH_REGISTERED = f"{DOMAIN}_static_path_registered"
 
 # ---------------------------------------------------------------------------
 # Lovelace card resource
@@ -63,9 +64,18 @@ async def async_get_picture_card_content(
 async def async_register_resources(hass) -> None:
     """Serve and register the HermesActionBar card as a dashboard resource."""
     static_path = Path(__file__).parent / "hacsfiles" / "hermes_action_bar.js"
-    await hass.http.async_register_static_paths([
-        StaticPathConfig(_STATIC_URL, str(static_path), cache_headers=True)
-    ])
+    if not hass.data.get(_STATIC_PATH_REGISTERED):
+        try:
+            await hass.http.async_register_static_paths([
+                StaticPathConfig(_STATIC_URL, str(static_path), cache_headers=True)
+            ])
+        except RuntimeError as err:
+            # The route survives a config-entry reload. Newer aiohttp versions
+            # reject registering the same GET route again instead of ignoring it.
+            if "method GET is already registered" not in str(err):
+                raise
+            _LOGGER.debug("Hermes static path is already registered; skipping")
+        hass.data[_STATIC_PATH_REGISTERED] = True
 
     try:
         from homeassistant.components.lovelace import _CONF_RESOURCES as RES_KEY  # type: ignore
