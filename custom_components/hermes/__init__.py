@@ -157,6 +157,10 @@ class HermesBridge:
         self._total_errors = 0
         self._voice_ready = False
         self._reader_task: asyncio.Task | None = None
+        # Owned reconnect task: distinct from the reader task so the reader's
+        # ``finally`` never blocks on reconnect and ownership is unambiguous.
+        self._reconnect_task: asyncio.Task | None = None
+        self._shutdown = False  # set True during unload to stop auto-reconnect
         # Map of conversation_id → asyncio.Future for routing Hermes responses
         self._pending_queries: dict[str, asyncio.Future] = {}
 
@@ -227,6 +231,15 @@ class HermesBridge:
         """Connect to Hermes Agent WebSocket."""
         import ssl as _ssl
 
+        # Idempotent: don't tear down a healthy connection (e.g. if a reconnect
+        # attempt races with setup or a duplicate connect call).
+        if self._connected and self._ws:
+            return
+
+        # Close any stale session from a previous (failed/dropped) attempt so
+        # we never leak aiohttp ClientSession resources across reconnects.
+        await self._close_session()
+
         ssl_context: _ssl.SSLContext | None = None
         if not self.verify_ssl:
             ssl_context = _ssl.create_default_context()
@@ -237,14 +250,6 @@ class HermesBridge:
                     "Hermes token configured with verify_ssl=False — "
                     "token will be sent over plaintext"
                 )
-
-        # Cancel any previous reader task before creating a new connection
-        if self._reader_task and not self._reader_task.done():
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
 
         try:
             self._session = aiohttp.ClientSession()
@@ -268,6 +273,27 @@ class HermesBridge:
         except Exception as exc:
             _LOGGER.warning("Failed to connect to Hermes WebSocket: %s", exc)
             self._connected = False
+            # Do not leak the half-created session on a failed connection.
+            await self._close_session()
+
+    async def _close_session(self) -> None:
+        """Close the current aiohttp WebSocket and HTTP session, if any.
+
+        Safe to call anytime: no-ops when there is nothing open, and
+        swallows errors so cleanup never masks the original failure.
+        """
+        ws, self._ws = self._ws, None
+        if ws is not None:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        session, self._session = self._session, None
+        if session is not None:
+            try:
+                await session.close()
+            except Exception:
+                pass
 
 
     async def _ws_reader(self) -> None:
@@ -315,6 +341,63 @@ class HermesBridge:
                     future.set_exception(ConnectionError("Hermes WebSocket disconnected"))
             self._pending_queries.clear()
 
+            # Close the dropped connection's session to avoid resource leaks.
+            await self._close_session()
+
+            # Auto-reconnect: Hermes gateway restarts drop this WebSocket (the
+            # plugin runs as a subprocess that dies on gateway restart). Reloading
+            # the integration was the only fix before — now reconnect instead.
+            # Reconnect runs as its OWN bridge-owned task (_reconnect_task) so
+            # this reader's ``finally`` returns immediately instead of blocking
+            # on backoff, and shutdown can cancel it cleanly.
+            if not self._shutdown:
+                self._start_reconnect()
+
+    def _start_reconnect(self) -> None:
+        """Start the bridge-owned reconnect task, unless one is already running."""
+        if self._reconnect_task and not self._reconnect_task.done():
+            return
+        self._reconnect_task = asyncio.create_task(self._auto_reconnect())
+
+    async def _auto_reconnect(self) -> None:
+        """Reconnect the Hermes WebSocket with exponential backoff.
+
+        Runs in the bridge-owned ``_reconnect_task`` and keeps retrying until
+        the bridge shuts down or a connection succeeds — so a gateway that
+        stays down doesn't leave the integration permanently disconnected
+        after a fixed attempt budget.
+
+        Backoff is genuinely exponential and capped: 5, 10, 20, 40, 60, 60, …
+        seconds (never more than ~1 attempt/minute).
+        """
+        self._reader_task = None
+        _LOGGER.warning("Hermes WebSocket dropped; auto-reconnecting")
+        attempt = 0
+        try:
+            while not self._shutdown:
+                attempt += 1
+                delay = min(60, 5 * (2 ** (attempt - 1)))
+                await asyncio.sleep(delay)
+                if self._shutdown:
+                    return
+                try:
+                    await self.async_connect()
+                except asyncio.CancelledError:
+                    return
+                except Exception as exc:
+                    _LOGGER.warning(
+                        "Hermes WS reconnect attempt %d failed: %s", attempt, exc
+                    )
+                    continue
+                if self._connected:
+                    _LOGGER.info("Hermes WebSocket reconnected")
+                    return
+            _LOGGER.warning("Hermes WS reconnect stopped (shutting down)")
+        finally:
+            # Clear the task reference once the reconnect loop ends so a later
+            # drop can start a fresh one.
+            self._reconnect_task = None
+
     async def async_send_conversation_query(
         self,
         text: str,
@@ -361,7 +444,15 @@ class HermesBridge:
 
     async def async_shutdown(self) -> None:
         """Clean up connections."""
+        self._shutdown = True
         self._connected = False
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnect_task = None
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
             try:
@@ -369,12 +460,7 @@ class HermesBridge:
             except asyncio.CancelledError:
                 pass
             self._reader_task = None
-        if self._ws:
-            await self._ws.close()
-            self._ws = None
-        if self._session:
-            await self._session.close()
-            self._session = None
+        await self._close_session()
 
     async def async_relay_command(self, command: dict[str, Any]) -> dict[str, Any]:
         """Relay a Hermes voice/control command over the Hermes WebSocket."""
