@@ -142,3 +142,37 @@ async def test_voice_stack_assist_handler_uses_ctx_llm():
     }
     assert ctx.llm.calls[0]["purpose"] == "voice_stack.assist_query"
     assert "What is the weather?" in ctx.llm.calls[0]["messages"][1]["content"]
+
+
+def test_voice_stack_register_makes_receiver_teardown_ledger_owned(monkeypatch):
+    """Plugin unload must stop the listener that captures its PluginContext."""
+    unload_callbacks = []
+    stopped = []
+
+    class _Ctx:
+        llm = object()
+
+        def register_tool(self, **_kwargs):
+            return None
+
+        def on_unload(self, callback):
+            unload_callbacks.append(callback)
+
+    monkeypatch.setattr(voice_stack, "_init_engines", lambda: True)
+    monkeypatch.setattr(ws_receiver, "start_ws_receiver", lambda: object())
+    monkeypatch.setattr(ws_receiver, "stop_ws_receiver", lambda: stopped.append(True))
+
+    voice_stack.register(_Ctx())
+
+    assert unload_callbacks == [ws_receiver.stop_ws_receiver]
+    unload_callbacks[0]()
+    assert stopped == [True]
+
+
+def test_stop_receiver_releases_the_assist_handler():
+    """Stopped or unloaded plugins must not retain stale PluginContext access."""
+    ws_receiver.set_assist_query_handler(lambda _payload: {"text": "stale"})
+
+    ws_receiver.stop_ws_receiver()
+
+    assert ws_receiver._ASSIST_QUERY_HANDLER is None

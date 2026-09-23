@@ -498,7 +498,11 @@ def register(ctx) -> None:
     # port is already occupied or aiohttp is unavailable, the warning is logged
     # and normal tool registration still succeeds.
     try:
-        from .ws_receiver import set_assist_query_handler, start_ws_receiver
+        from .ws_receiver import set_assist_query_handler, start_ws_receiver, stop_ws_receiver
+        # The listener and its assist callback capture this PluginContext. Make
+        # teardown ledger-owned before acquiring either, so disable, uninstall,
+        # failed registration and forced reload cannot leave stale profile state.
+        ctx.on_unload(stop_ws_receiver)
         set_assist_query_handler(lambda payload: _handle_assist_query_with_llm(ctx, payload))
         start_ws_receiver()
     except Exception as exc:

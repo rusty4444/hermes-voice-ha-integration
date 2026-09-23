@@ -2,6 +2,15 @@
 
 All notable changes to the hermes-voice-ha-integration project.
 
+## [Unreleased]
+
+### Fixed
+- The bundled Hermes `voice_stack` plugin no longer warns `address already in use` on port 7860 when another Hermes process for the same profile already serves it. The receiver is a process-wide singleton, but every Hermes process that loads the plugin (gateway, CLI session, dashboard) re-imports the module with fresh globals and re-attempted the bind, logging a failure for a port the first process was serving correctly. `start_ws_receiver` now probes the port first and, when the receiver's own unauthenticated `/health` payload identifies both the service and the same opaque profile identity, logs an informational duplicate instead. A foreign service, different or unidentified profile, or different path remains a visible configuration conflict. Identity is taken from the health payload rather than the HTTP status, since a protected foreign API answers 401 and an unrelated upgrade endpoint answers 426. ([#47](https://github.com/rusty4444/hermes-voice-ha-integration/pull/47), thanks Joel Silva [@byjaps](https://github.com/byjaps).)
+- The in-process receiver record is now owner-scoped: it carries the module file, active Hermes profile, bind config and pid. Another profile's plugin no longer adopts a receiver it did not start (nor can `stop_ws_receiver()` stop it), and every fresh module import rebinds instead of being served by an object still bound to the previous module's globals, PluginContext and assist handler. Wildcard binds are probed on both loopback addresses so an IPv6-only receiver is recognised.
+- The receiver thread now preserves the owning profile's ContextVar scope, and receiver enablement, bind settings and authentication token resolve through Hermes' profile-scoped secret environment. Assist callbacks and WebSocket authentication therefore use the owning profile instead of the process launch profile, while resolver failures remain fail-closed under multiplexing.
+- Plugin unload, disable and forced reload now cancel in-flight Assist requests, close active Home Assistant WebSockets before cleaning up the listener, terminate the receiver thread, and release its captured assist handler. Connection bookkeeping is also released when a peer resets during the initial `hello` write. This prevents a client or model request remaining attached to an orphaned stale receiver after the replacement has bound.
+- `HermesHAWebSocketServer.running` no longer reports `True` after a failed bind. It was judged on the startup event, which is set for both outcomes (the caller must not wait forever), so during a failed bind — while the thread was still inside its cleanup — the property reported a live receiver and `start_ws_receiver` handed back a dead server. Liveness now requires a dedicated "bound and serving" event.
+
 ## [0.0.14] — 2026-09-21
 
 ### Added

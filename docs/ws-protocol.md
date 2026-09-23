@@ -52,6 +52,7 @@ Returns receiver health and observability data.
   "type": "status",
   "ok": true,
   "service": "hermes-ha-ws",
+  "profile_id": "7ebf1470d6ad7699706dc7b7b53bdebc94870a63685ea6b27dbd17ddbcaf1de3",
   "running": true,
   "uptime_seconds": 42.0,
   "auth_required": true,
@@ -64,7 +65,7 @@ Returns receiver health and observability data.
 }
 ```
 
-The `/health` HTTP endpoint returns the same status shape without requiring a WebSocket upgrade.
+The `/health` HTTP endpoint returns the same status shape without requiring a WebSocket upgrade. `profile_id` is a stable SHA-256-derived, non-secret identifier for the active Hermes profile; duplicate bind probes use it to distinguish another process serving the same profile from a conflicting receiver owned by a different or unidentified profile.
 
 ### `state_changed`
 
