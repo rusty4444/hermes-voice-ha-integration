@@ -4,6 +4,8 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+## [0.0.15] — 2026-09-24
+
 ### Fixed
 - The bundled Hermes `voice_stack` plugin no longer warns `address already in use` on port 7860 when another Hermes process for the same profile already serves it. The receiver is a process-wide singleton, but every Hermes process that loads the plugin (gateway, CLI session, dashboard) re-imports the module with fresh globals and re-attempted the bind, logging a failure for a port the first process was serving correctly. `start_ws_receiver` now probes the port first and, when the receiver's own unauthenticated `/health` payload identifies both the service and the same opaque profile identity, logs an informational duplicate instead. A foreign service, different or unidentified profile, or different path remains a visible configuration conflict. Identity is taken from the health payload rather than the HTTP status, since a protected foreign API answers 401 and an unrelated upgrade endpoint answers 426. ([#47](https://github.com/rusty4444/hermes-voice-ha-integration/pull/47), thanks Joel Silva [@byjaps](https://github.com/byjaps).)
 - The in-process receiver record is now owner-scoped: it carries the module file, active Hermes profile, bind config and pid. Another profile's plugin no longer adopts a receiver it did not start (nor can `stop_ws_receiver()` stop it), and every fresh module import rebinds instead of being served by an object still bound to the previous module's globals, PluginContext and assist handler. Wildcard binds are probed on both loopback addresses so an IPv6-only receiver is recognised.
