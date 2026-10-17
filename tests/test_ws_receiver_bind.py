@@ -386,6 +386,102 @@ def test_profile_scope_failure_does_not_fall_back_to_launch_token(
         module._configured_token()
 
 
+@requires_aiohttp
+def test_unscoped_multiplex_registration_scopes_receiver_thread(
+    free_port: int, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unscoped plugin registration must bind this profile, not the launch env."""
+    module = _load_module("ws_receiver_multiplex_registration")
+    profile_home = str(tmp_path / "routed-profile")
+    monkeypatch.setattr(module, "_profile_scope", lambda: profile_home)
+    monkeypatch.setenv("HERMES_HA_WS_TOKEN", "launch-profile-token")
+    monkeypatch.setenv("API_SERVER_KEY", "launch-api-key")
+    scoped = ContextVar("test_receiver_secret_scope", default=None)
+    built_for: list[Path] = []
+
+    def get_secret(name: str, default: Optional[str] = None) -> Optional[str]:
+        secrets = scoped.get()
+        if secrets is None:
+            raise RuntimeError(f"unscoped: {name}")
+        return secrets.get(name, default)
+
+    def build_scope(home: Path) -> dict[str, str]:
+        built_for.append(home)
+        return {"HERMES_HA_WS_TOKEN": "owner-profile-token"}
+
+    secret_module = types.SimpleNamespace(
+        get_secret=get_secret,
+        is_multiplex_active=lambda: True,
+        current_secret_scope=scoped.get,
+        build_profile_secret_scope=build_scope,
+        set_secret_scope=lambda secrets, profile_home: scoped.set(secrets),
+        reset_secret_scope=scoped.reset,
+    )
+    real_import_module = module.importlib.import_module
+
+    def scoped_import(name: str, *args: Any, **kwargs: Any):
+        if name == "agent.secret_scope":
+            return secret_module
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(module.importlib, "import_module", scoped_import)
+    server = module.start_ws_receiver("127.0.0.1", free_port, WS_PATH)
+    assert server is not None and server.running
+    assert built_for == [Path(profile_home)]
+    assert scoped.get() is None  # only the receiver thread retains its copy
+
+    async def request_probe():
+        async with ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{free_port}/health") as response:
+                assert response.status == 200
+                assert (await response.json())["auth_required"] is True
+            with pytest.raises(WSServerHandshakeError) as error:
+                await session.ws_connect(
+                    f"http://127.0.0.1:{free_port}{WS_PATH}",
+                    headers={"Authorization": "Bearer launch-profile-token"},
+                )
+            assert error.value.status == 401
+            async with session.ws_connect(
+                f"http://127.0.0.1:{free_port}{WS_PATH}",
+                headers={"Authorization": "Bearer owner-profile-token"},
+            ) as client:
+                await client.receive_json()
+                await client.send_json({"type": "assist_query", "text": "test"})
+                return await client.receive_json()
+
+    async def scoped_assist(_payload: dict[str, Any]) -> dict[str, Any]:
+        return {"text": get_secret("HERMES_HA_WS_TOKEN")}
+
+    module.set_assist_query_handler(scoped_assist)
+    try:
+        reply = asyncio.run(request_probe())
+        assert reply["ok"] is True
+        assert reply["text"] == "owner-profile-token"
+    finally:
+        module.stop_ws_receiver()
+
+
+def test_unscoped_multiplex_registration_fails_closed_without_profile_home(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module("ws_receiver_multiplex_no_home")
+    monkeypatch.setattr(module, "_profile_scope", lambda: "")
+    monkeypatch.setenv("HERMES_HA_WS_TOKEN", "launch-profile-token")
+    real_import_module = module.importlib.import_module
+
+    def scoped_import(name: str, *args: Any, **kwargs: Any):
+        if name == "agent.secret_scope":
+            return types.SimpleNamespace(
+                is_multiplex_active=lambda: True,
+                current_secret_scope=lambda: None,
+            )
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(module.importlib, "import_module", scoped_import)
+    with pytest.raises(RuntimeError, match="no profile home"):
+        module.start_ws_receiver("127.0.0.1", 0, WS_PATH)
+
+
 # --------------------------------------------------------------------------- #
 # Liveness                                                                    #
 # --------------------------------------------------------------------------- #

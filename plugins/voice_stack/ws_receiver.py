@@ -24,6 +24,8 @@ import sys
 import threading
 import time
 from collections.abc import Awaitable
+from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional
 
 try:
@@ -636,6 +638,40 @@ def _profile_scope() -> str:
     return os.path.realpath(os.path.expanduser(home)) if home else ""
 
 
+@contextmanager
+def _receiver_profile_secret_scope():
+    """Bind the owning profile before starting the receiver's long-lived thread.
+
+    Some Hermes plugin-registration paths have a profile home override but no
+    secret scope. In multiplex mode a copied empty ContextVar scope makes every
+    /health and WebSocket token check fail. Build the scope for that specific
+    home before ``server.start()`` copies the context into its event-loop thread.
+    Never substitute process-wide environment secrets for a missing scope.
+    """
+    try:
+        scope_mod = importlib.import_module("agent.secret_scope")
+    except ImportError:  # Older standalone Hermes installs
+        yield
+        return
+    if (
+        not getattr(scope_mod, "is_multiplex_active", lambda: False)()
+        or scope_mod.current_secret_scope() is not None
+    ):
+        yield
+        return
+
+    home = _profile_scope()
+    if not home:
+        raise RuntimeError("Hermes HA WebSocket receiver has no profile home for secret scope")
+    token = scope_mod.set_secret_scope(
+        scope_mod.build_profile_secret_scope(Path(home)), profile_home=home
+    )
+    try:
+        yield
+    finally:
+        scope_mod.reset_secret_scope(token)
+
+
 def _profile_identity() -> str:
     """Opaque cross-process identity for the active Hermes profile."""
     scope = _profile_scope()
@@ -750,7 +786,13 @@ def _log_existing_receiver(
 
 
 def start_ws_receiver(host: Optional[str] = None, port: Optional[int] = None, path: Optional[str] = None) -> Optional[HermesHAWebSocketServer]:
-    """Start the singleton HA WebSocket receiver if enabled."""
+    """Start the singleton HA WebSocket receiver with its owner's secret scope."""
+    with _receiver_profile_secret_scope():
+        return _start_ws_receiver_scoped(host, port, path)
+
+
+def _start_ws_receiver_scoped(host: Optional[str], port: Optional[int], path: Optional[str]) -> Optional[HermesHAWebSocketServer]:
+    """Read configuration and bind while the owning profile scope is active."""
     enabled = str(_profile_env("HERMES_HA_WS_ENABLED", "1") or "").strip().lower()
     if enabled in {"0", "false", "no", "off"}:
         logger.info("Hermes HA WebSocket receiver disabled by HERMES_HA_WS_ENABLED")
