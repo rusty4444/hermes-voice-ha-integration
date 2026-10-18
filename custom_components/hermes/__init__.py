@@ -281,6 +281,11 @@ class HermesBridge:
             self._connected = False
             # Do not leak the half-created session on a failed connection.
             await self._close_session()
+            # A failed initial connection has no reader to trigger reconnect.
+            # This also covers a gateway that starts after Home Assistant.
+            # During a retry, _start_reconnect is a no-op for the owned task.
+            if not self._shutdown:
+                self._start_reconnect()
 
     async def _close_session(self) -> None:
         """Close the current aiohttp WebSocket and HTTP session, if any.
@@ -377,7 +382,7 @@ class HermesBridge:
         seconds (never more than ~1 attempt/minute).
         """
         self._reader_task = None
-        _LOGGER.warning("Hermes WebSocket dropped; auto-reconnecting")
+        _LOGGER.warning("Hermes WebSocket disconnected; auto-reconnecting")
         attempt = 0
         try:
             while not self._shutdown:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import ModuleType, SimpleNamespace
 from typing import Any
 import sys
@@ -67,6 +68,7 @@ _install_homeassistant_stubs()
 
 from custom_components.hermes.const import DOMAIN, normalize_wake_word
 from custom_components.hermes import services as hermes_services
+from custom_components import hermes as hermes_integration
 from custom_components.hermes.frontend import async_register_resources
 
 
@@ -361,3 +363,82 @@ async def test_voice_settings_query_returns_limited_matches() -> None:
         "limit": 1,
         "matches": [{"entity_id": "light.kitchen", "state": "on"}],
     }
+
+
+@pytest.mark.asyncio
+async def test_initial_ws_failure_retries_until_gateway_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setup-time failure has no reader to launch the existing reconnect loop."""
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(hermes_integration.asyncio, "sleep", lambda _: real_sleep(0))
+    attempts = 0
+    closed_sessions = 0
+    connected = asyncio.Event()
+
+    class Socket:
+        async def close(self) -> None:
+            pass
+
+        async def __aiter__(self):
+            await asyncio.Future()  # reader stays up until bridge shutdown
+            if False:
+                yield None
+
+    class Session:
+        async def ws_connect(self, *args: Any, **kwargs: Any) -> Socket:
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise OSError("gateway not started")
+            connected.set()
+            return Socket()
+
+        async def close(self) -> None:
+            nonlocal closed_sessions
+            closed_sessions += 1
+
+    monkeypatch.setattr(hermes_integration.aiohttp, "ClientSession", Session)
+    bridge = hermes_integration.HermesBridge(FakeHass(), "http://localhost:7860", "", [])
+    try:
+        await bridge.async_connect()
+        retry = bridge._reconnect_task
+        assert retry is not None
+        await asyncio.wait_for(connected.wait(), 2)
+        await asyncio.wait_for(retry, 2)
+        assert bridge.connected
+        assert attempts == 3
+        assert closed_sessions == 2
+        assert bridge._reconnect_task is None
+    finally:
+        await bridge.async_shutdown()
+    assert closed_sessions == 3
+
+
+@pytest.mark.asyncio
+async def test_initial_ws_failure_retry_is_cancelled_on_unload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    closed_sessions = 0
+
+    class Session:
+        async def ws_connect(self, *args: Any, **kwargs: Any) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise OSError("gateway offline")
+
+        async def close(self) -> None:
+            nonlocal closed_sessions
+            closed_sessions += 1
+
+    monkeypatch.setattr(hermes_integration.aiohttp, "ClientSession", Session)
+    bridge = hermes_integration.HermesBridge(FakeHass(), "http://localhost:7860", "", [])
+    await bridge.async_connect()
+    retry = bridge._reconnect_task
+    assert retry is not None
+    await bridge.async_shutdown()
+    assert retry.done()
+    assert bridge._reconnect_task is None
+    assert attempts == 1
+    assert closed_sessions == 1
