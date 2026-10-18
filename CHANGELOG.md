@@ -4,6 +4,11 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+## [0.0.16] — 2026-10-19
+
+### Fixed
+- Bind the HA WebSocket receiver to the owning Hermes profile's secret scope before starting its event-loop thread when multiplexed plugin registration has a home override but no existing scope. Health checks, WebSocket authentication, and Assist callbacks now use the correct profile token instead of failing unscoped. Preserve pre-existing scopes and fail closed without a profile home. ([#50](https://github.com/rusty4444/hermes-voice-ha-integration/pull/50); partially addresses [#49](https://github.com/rusty4444/hermes-voice-ha-integration/issues/49). Reconnect-after-gateway-restart remains under investigation.)
+
 ## [0.0.15] — 2026-09-24
 
 ### Fixed
