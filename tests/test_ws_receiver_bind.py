@@ -31,7 +31,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 import pytest
-from aiohttp import ClientSession, WSServerHandshakeError
+from aiohttp import ClientSession, WSServerHandshakeError, web
+from aiohttp.test_utils import TestServer
 
 from plugins.voice_stack import ws_receiver
 
@@ -459,6 +460,90 @@ def test_unscoped_multiplex_registration_scopes_receiver_thread(
         assert reply["text"] == "owner-profile-token"
     finally:
         module.stop_ws_receiver()
+
+
+@requires_aiohttp
+@pytest.mark.asyncio
+async def test_multiplex_request_without_inherited_scope_uses_listener_owner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """aiohttp tasks without the registration scope still authenticate and run Assist."""
+    module = _load_module("ws_receiver_unscoped_request")
+    owner_home = str(tmp_path / "owner-profile")
+    monkeypatch.setattr(module, "_profile_scope", lambda: owner_home)
+    monkeypatch.setenv("HERMES_HA_WS_TOKEN", "launch-profile-token")
+    scope = ContextVar("test_request_secret_scope", default=None)
+    built_for: list[Path] = []
+
+    class UnscopedSecretError(RuntimeError):
+        pass
+
+    def get_secret(name: str, default: Optional[str] = None) -> Optional[str]:
+        values = scope.get()
+        if values is None:
+            raise UnscopedSecretError(name)
+        return values.get(name, default)
+
+    def build_scope(home: Path) -> dict[str, str]:
+        built_for.append(home)
+        return {"HERMES_HA_WS_TOKEN": "owner-profile-token"}
+
+    secret_module = types.SimpleNamespace(
+        get_secret=get_secret,
+        is_multiplex_active=lambda: True,
+        current_secret_scope=scope.get,
+        build_profile_secret_scope=build_scope,
+        set_secret_scope=lambda secrets, profile_home: scope.set(secrets),
+        reset_secret_scope=scope.reset,
+    )
+    real_import_module = module.importlib.import_module
+
+    def scoped_import(name: str, *args: Any, **kwargs: Any):
+        if name == "agent.secret_scope":
+            return secret_module
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(module.importlib, "import_module", scoped_import)
+    server = module.HermesHAWebSocketServer("127.0.0.1", 0, WS_PATH)
+    # Request tasks may lack the routed home override as well as the secret
+    # scope. The server must keep using its pinned owner, not the launch home.
+    monkeypatch.setattr(module, "_profile_scope", lambda: str(tmp_path / "launch-profile"))
+
+    async def scoped_assist(_payload: dict[str, Any]) -> dict[str, Any]:
+        return {"text": get_secret("HERMES_HA_WS_TOKEN")}
+
+    module.set_assist_query_handler(scoped_assist)
+    app = web.Application()
+    app.router.add_get("/health", server._handle_health)
+    app.router.add_get(WS_PATH, server._handle_ws)
+    assert scope.get() is None  # no scope at app creation or request dispatch
+    try:
+        async with TestServer(app) as test_server:
+            async with ClientSession() as session:
+                async with session.get(test_server.make_url("/health")) as response:
+                    assert response.status == 200
+                    status = await response.json()
+                    assert status["auth_required"] is True
+                    assert status["profile_id"] == module._profile_identity(owner_home)
+                with pytest.raises(WSServerHandshakeError) as error:
+                    await session.ws_connect(
+                        test_server.make_url(WS_PATH),
+                        headers={"Authorization": "Bearer launch-profile-token"},
+                    )
+                assert error.value.status == 401
+                async with session.ws_connect(
+                    test_server.make_url(WS_PATH),
+                    headers={"Authorization": "Bearer owner-profile-token"},
+                ) as client:
+                    await client.receive_json()  # hello
+                    await client.send_json({"type": "assist_query", "text": "test"})
+                    reply = await client.receive_json()
+                    assert reply["text"] == "owner-profile-token"
+                    assert reply["ok"] is True
+        assert scope.get() is None  # scopes reset after all requests
+        assert built_for == [Path(owner_home)] * 3
+    finally:
+        module.set_assist_query_handler(None)
 
 
 def test_unscoped_multiplex_registration_fails_closed_without_profile_home(

@@ -25,6 +25,7 @@ import threading
 import time
 from collections.abc import Awaitable
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional
 
@@ -114,7 +115,7 @@ def receiver_status(server: Optional["HermesHAWebSocketServer"] = None) -> dict[
         # Stable across processes for the same profile, without exposing its
         # filesystem path. The bind probe uses it to distinguish a harmless
         # duplicate from another profile occupying this profile's endpoint.
-        "profile_id": _profile_identity(),
+        "profile_id": _profile_identity(target._profile_home if target is not None else None),
         "running": running,
         "uptime_seconds": round(time.monotonic() - _START_TIME, 1),
         "auth_required": bool(_configured_token()),
@@ -346,6 +347,21 @@ async def handle_ha_ws_payload_async(payload: dict[str, Any]) -> dict[str, Any]:
     return handle_ha_ws_payload(payload)
 
 
+def _scoped_receiver_request(handler: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+    """Bind the listener's owner on each request, including Assist callbacks.
+
+    aiohttp request tasks need not inherit the scope installed at registration
+    or copied into the receiver thread. Never use the launch profile's process
+    environment when a multiplexed request arrives without a scope.
+    """
+    @wraps(handler)
+    async def wrapped(self: "HermesHAWebSocketServer", request: "aiohttp_web.Request") -> Any:
+        with _receiver_profile_secret_scope(self._profile_home):
+            return await handler(self, request)
+
+    return wrapped
+
+
 class HermesHAWebSocketServer:
     """Small aiohttp WebSocket server for HA-originated Hermes messages."""
 
@@ -355,6 +371,9 @@ class HermesHAWebSocketServer:
         self.host = host
         self.port = int(port)
         self.path = path
+        # Pin the owner before crossing a thread/task boundary. A request with
+        # an empty ContextVar scope must not infer its home from os.environ.
+        self._profile_home = _profile_scope()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._runner: Optional["aiohttp_web.AppRunner"] = None
@@ -522,10 +541,12 @@ class HermesHAWebSocketServer:
         if self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
 
+    @_scoped_receiver_request
     async def _handle_health(self, request: "aiohttp_web.Request") -> "aiohttp_web.Response":
         assert web is not None
         return web.json_response({"type": "status", **receiver_status(self)})
 
+    @_scoped_receiver_request
     async def _handle_ws(self, request: "aiohttp_web.Request") -> "aiohttp_web.WebSocketResponse":
         assert web is not None
         assert WSMsgType is not None
@@ -639,13 +660,14 @@ def _profile_scope() -> str:
 
 
 @contextmanager
-def _receiver_profile_secret_scope():
-    """Bind the owning profile before starting the receiver's long-lived thread.
+def _receiver_profile_secret_scope(profile_home: Optional[str] = None):
+    """Bind the owning profile before starting a thread or handling a request.
 
     Some Hermes plugin-registration paths have a profile home override but no
     secret scope. In multiplex mode a copied empty ContextVar scope makes every
     /health and WebSocket token check fail. Build the scope for that specific
-    home before ``server.start()`` copies the context into its event-loop thread.
+    home before ``server.start()`` copies the context into its event-loop thread,
+    and again for any request task that did not inherit it.
     Never substitute process-wide environment secrets for a missing scope.
     """
     try:
@@ -653,14 +675,19 @@ def _receiver_profile_secret_scope():
     except ImportError:  # Older standalone Hermes installs
         yield
         return
-    if (
-        not getattr(scope_mod, "is_multiplex_active", lambda: False)()
-        or scope_mod.current_secret_scope() is not None
+    if not getattr(scope_mod, "is_multiplex_active", lambda: False)():
+        yield
+        return
+    current_scope = scope_mod.current_secret_scope()
+    current_home = getattr(scope_mod, "current_secret_scope_home", lambda: None)()
+    if current_scope is not None and (
+        profile_home is None
+        or (current_home is not None and os.path.realpath(current_home) == profile_home)
     ):
         yield
         return
 
-    home = _profile_scope()
+    home = profile_home or _profile_scope()
     if not home:
         raise RuntimeError("Hermes HA WebSocket receiver has no profile home for secret scope")
     token = scope_mod.set_secret_scope(
@@ -672,9 +699,9 @@ def _receiver_profile_secret_scope():
         scope_mod.reset_secret_scope(token)
 
 
-def _profile_identity() -> str:
-    """Opaque cross-process identity for the active Hermes profile."""
-    scope = _profile_scope()
+def _profile_identity(profile_home: Optional[str] = None) -> str:
+    """Opaque cross-process identity for the owning Hermes profile."""
+    scope = profile_home or _profile_scope()
     return hashlib.sha256(scope.encode("utf-8")).hexdigest() if scope else ""
 
 
