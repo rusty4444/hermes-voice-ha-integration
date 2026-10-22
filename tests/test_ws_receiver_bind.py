@@ -464,16 +464,38 @@ def test_unscoped_multiplex_registration_scopes_receiver_thread(
 
 @requires_aiohttp
 @pytest.mark.asyncio
+@pytest.mark.parametrize("incoming_home", [None, "launch-profile"])
+@pytest.mark.parametrize("incoming_scope", [None, "owner-profile", "launch-profile"])
 async def test_multiplex_request_without_inherited_scope_uses_listener_owner(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    incoming_home: Optional[str], incoming_scope: Optional[str],
 ) -> None:
-    """aiohttp tasks without the registration scope still authenticate and run Assist."""
+    """Authentication, Assist and request-task cleanup share the listener owner."""
     module = _load_module("ws_receiver_unscoped_request")
     owner_home = str(tmp_path / "owner-profile")
     monkeypatch.setattr(module, "_profile_scope", lambda: owner_home)
     monkeypatch.setenv("HERMES_HA_WS_TOKEN", "launch-profile-token")
-    scope = ContextVar("test_request_secret_scope", default=None)
+    scope: ContextVar[Optional[dict[str, str]]] = ContextVar("test_request_secret_scope", default=None)
+    scope_home: ContextVar[Optional[str]] = ContextVar("test_request_secret_home", default=None)
+    home: ContextVar[Optional[str]] = ContextVar("test_request_hermes_home", default=None)
     built_for: list[Path] = []
+    restored: list[str] = []
+
+    def set_scope(values, profile_home):
+        return scope.set(values), scope_home.set(profile_home)
+
+    def reset_scope(tokens):
+        scope.reset(tokens[0])
+        scope_home.reset(tokens[1])
+
+    def get_home():
+        return Path(home.get() or tmp_path / "launch-profile")
+
+    home_module = types.SimpleNamespace(
+        get_hermes_home=get_home,
+        set_hermes_home_override=home.set,
+        reset_hermes_home_override=home.reset,
+    )
 
     class UnscopedSecretError(RuntimeError):
         pass
@@ -492,31 +514,50 @@ async def test_multiplex_request_without_inherited_scope_uses_listener_owner(
         get_secret=get_secret,
         is_multiplex_active=lambda: True,
         current_secret_scope=scope.get,
+        current_secret_scope_home=scope_home.get,
         build_profile_secret_scope=build_scope,
-        set_secret_scope=lambda secrets, profile_home: scope.set(secrets),
-        reset_secret_scope=scope.reset,
+        set_secret_scope=set_scope,
+        reset_secret_scope=reset_scope,
     )
     real_import_module = module.importlib.import_module
 
     def scoped_import(name: str, *args: Any, **kwargs: Any):
         if name == "agent.secret_scope":
             return secret_module
+        if name == "hermes_constants":
+            return home_module
         return real_import_module(name, *args, **kwargs)
 
     monkeypatch.setattr(module.importlib, "import_module", scoped_import)
     server = module.HermesHAWebSocketServer("127.0.0.1", 0, WS_PATH)
-    # Request tasks may lack the routed home override as well as the secret
-    # scope. The server must keep using its pinned owner, not the launch home.
-    monkeypatch.setattr(module, "_profile_scope", lambda: str(tmp_path / "launch-profile"))
 
     async def scoped_assist(_payload: dict[str, Any]) -> dict[str, Any]:
+        assert get_home() == Path(owner_home)
+        await asyncio.sleep(0)
+        assert get_home() == Path(owner_home)
         return {"text": get_secret("HERMES_HA_WS_TOKEN")}
 
+    @web.middleware
+    async def verify_request_cleanup(request, handler):
+        home_token = home.set(str(tmp_path / incoming_home) if incoming_home else None)
+        scope_token = set_scope(
+            {"HERMES_HA_WS_TOKEN": f"{incoming_scope}-token"} if incoming_scope else None,
+            str(tmp_path / incoming_scope) if incoming_scope else None,
+        )
+        previous = (home.get(), scope.get(), scope_home.get())
+        try:
+            return await handler(request)
+        finally:
+            assert (home.get(), scope.get(), scope_home.get()) == previous
+            restored.append(request.path)
+            reset_scope(scope_token)
+            home.reset(home_token)
+
     module.set_assist_query_handler(scoped_assist)
-    app = web.Application()
+    app = web.Application(middlewares=[verify_request_cleanup])
     app.router.add_get("/health", server._handle_health)
     app.router.add_get(WS_PATH, server._handle_ws)
-    assert scope.get() is None  # no scope at app creation or request dispatch
+    assert scope.get() is None
     try:
         async with TestServer(app) as test_server:
             async with ClientSession() as session:
@@ -535,15 +576,56 @@ async def test_multiplex_request_without_inherited_scope_uses_listener_owner(
                     test_server.make_url(WS_PATH),
                     headers={"Authorization": "Bearer owner-profile-token"},
                 ) as client:
-                    await client.receive_json()  # hello
+                    await client.receive_json()
                     await client.send_json({"type": "assist_query", "text": "test"})
                     reply = await client.receive_json()
                     assert reply["text"] == "owner-profile-token"
                     assert reply["ok"] is True
-        assert scope.get() is None  # scopes reset after all requests
-        assert built_for == [Path(owner_home)] * 3
+        assert scope.get() is None
+        assert home.get() is None
+        assert restored == ["/health", WS_PATH, WS_PATH]
+        assert built_for == ([] if incoming_scope == "owner-profile" else [Path(owner_home)] * 3)
     finally:
         module.set_assist_query_handler(None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, RuntimeError, asyncio.CancelledError])
+async def test_request_home_restored_on_return_error_and_cancellation(
+    monkeypatch: pytest.MonkeyPatch, failure,
+) -> None:
+    module = _load_module("ws_receiver_request_cleanup")
+    home: ContextVar[str] = ContextVar("request_home_cleanup", default="previous-home")
+    real_import_module = module.importlib.import_module
+
+    def scoped_import(name: str, *args: Any, **kwargs: Any):
+        if name == "hermes_constants":
+            return types.SimpleNamespace(
+                set_hermes_home_override=home.set,
+                reset_hermes_home_override=home.reset,
+            )
+        if name == "agent.secret_scope":
+            return types.SimpleNamespace(is_multiplex_active=lambda: False)
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(module.importlib, "import_module", scoped_import)
+
+    @module._scoped_receiver_request
+    async def handler(self, request):
+        assert home.get() == "owner-home"
+        await asyncio.sleep(0)
+        assert home.get() == "owner-home"
+        if failure:
+            raise failure()
+        return "done"
+
+    server = types.SimpleNamespace(_profile_home="owner-home")
+    if failure:
+        with pytest.raises(failure):
+            await handler(server, None)
+    else:
+        assert await handler(server, None) == "done"
+    assert home.get() == "previous-home"
 
 
 def test_unscoped_multiplex_registration_fails_closed_without_profile_home(

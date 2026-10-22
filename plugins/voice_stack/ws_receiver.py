@@ -356,7 +356,7 @@ def _scoped_receiver_request(handler: Callable[..., Awaitable[Any]]) -> Callable
     """
     @wraps(handler)
     async def wrapped(self: "HermesHAWebSocketServer", request: "aiohttp_web.Request") -> Any:
-        with _receiver_profile_secret_scope(self._profile_home):
+        with _receiver_profile_home_scope(self._profile_home), _receiver_profile_secret_scope(self._profile_home):
             return await handler(self, request)
 
     return wrapped
@@ -657,6 +657,30 @@ def _profile_scope() -> str:
         except Exception:  # pragma: no cover - fail-soft outside Hermes runtime
             home = os.getenv("HERMES_HOME", "")
     return os.path.realpath(os.path.expanduser(home)) if home else ""
+
+
+@contextmanager
+def _receiver_profile_home_scope(profile_home: str):
+    """Keep config/trust routing and authentication on the same listener owner.
+
+    A matching secret scope does not imply a matching home override. Bind the
+    home independently for the entire awaited request, and restore the request
+    task's original context even on HTTP errors or cancellation.
+    """
+    try:
+        constants = importlib.import_module("hermes_constants")
+        set_home = getattr(constants, "set_hermes_home_override")
+        reset_home = getattr(constants, "reset_hermes_home_override")
+    except (ImportError, AttributeError):  # Older standalone Hermes installs
+        yield
+        return
+    if not profile_home:
+        raise RuntimeError("Hermes HA WebSocket receiver has no profile home for request")
+    token = set_home(profile_home)
+    try:
+        yield
+    finally:
+        reset_home(token)
 
 
 @contextmanager
