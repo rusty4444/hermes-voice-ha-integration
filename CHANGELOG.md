@@ -4,6 +4,15 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+## [0.0.17] (unreleased)
+
+### Fixed
+- Restore the listener owner's Hermes home and profile-secret scope around every health and WebSocket request, including awaited Assist callbacks. This handles aiohttp request tasks that do not inherit the registration/thread scope, rejects another profile's token and restores the incoming context on success, errors and cancellation. The registration-time change in v0.0.16 was insufficient for the reporter's multiplexed gateway. ([#53](https://github.com/rusty4444/hermes-voice-ha-integration/pull/53); addresses [#49](https://github.com/rusty4444/hermes-voice-ha-integration/issues/49).)
+- Retry failed initial Home Assistant WebSocket connections rather than requiring a config-entry reload after the gateway becomes available. ([#52](https://github.com/rusty4444/hermes-voice-ha-integration/pull/52).)
+
+### Release preparation
+- Align the Python package, HACS integration, add-on scaffold and both Hermes plugin manifests at 0.0.17. This entry prepares the next release; no tag or release has been published. Real reporter-environment confirmation on Hermes 0.22.2/Python 3.14 remains pending.
+
 ## [0.0.16] — 2026-10-19
 
 ### Fixed

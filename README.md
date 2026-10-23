@@ -27,7 +27,7 @@ This repository is a bundle of three pieces:
 
 The Python wheel is intentionally plugin-focused. Use the GitHub tag or source distribution for the full HACS/custom-component/add-on bundle.
 
-> **Release:** `v0.0.16` — binds the HA WebSocket receiver to its owning profile's secrets when registration starts without a scope under multiplexed Hermes.
+> **Next release (not yet published):** `v0.0.17` restores the owning profile's home and secret scope for each HA receiver request and retries failed initial WebSocket connections. The latest published release remains `v0.0.16`; its registration-time scope fix alone does not resolve every case in [#49](https://github.com/rusty4444/hermes-voice-ha-integration/issues/49). The fixes are already on `main`, but upgrading to the existing `v0.0.16` tag will not install them.
 
 ---
 
