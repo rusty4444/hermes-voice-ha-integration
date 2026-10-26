@@ -248,7 +248,12 @@ class HermesBridge:
 
         ssl_context: _ssl.SSLContext | None = None
         if not self.verify_ssl:
-            ssl_context = _ssl.create_default_context()
+            # create_default_context() reads the CA bundle from disk (blocking
+            # I/O); building it on the event loop makes HA log
+            # "Detected blocking call to load_default_certs". Keep it off-loop.
+            ssl_context = await self.hass.async_add_executor_job(
+                _ssl.create_default_context
+            )
             ssl_context.check_hostname = False
             ssl_context.verify_mode = _ssl.CERT_NONE
             if self.hermes_token:

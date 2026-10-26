@@ -62,3 +62,28 @@ def test_status_sensor_unique_ids_are_entry_scoped() -> None:
     source = _source("custom_components/hermes/sensor.py")
     assert 'self._attr_unique_id = f"{DOMAIN}_{entry_id}_{description.key}"' in source
     assert "HermesStatusSensor(coordinator, desc, entry.entry_id)" in source
+
+
+def test_ssl_context_is_built_off_the_event_loop() -> None:
+    """Creating a default SSL context reads the CA bundle from disk (blocking).
+
+    Home Assistant logs ``Detected blocking call to load_default_certs`` when it
+    happens inside the event loop, so the context must be built in the executor.
+    """
+    source = _source("custom_components/hermes/__init__.py")
+    tree = ast.parse(source)
+
+    direct_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "create_default_context"
+    ]
+    assert not direct_calls, (
+        "create_default_context() must not be called directly on the event loop; "
+        "pass it to hass.async_add_executor_job"
+    )
+
+    normalized = " ".join(source.split())
+    assert "async_add_executor_job( _ssl.create_default_context )" in normalized
