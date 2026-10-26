@@ -457,7 +457,7 @@ async def test_hermes_receives_the_original_transcript() -> None:
     assert bridge.texts == [text]
     assert _speech(result) == "resposta do Hermes"
     # The cleanup was still used for the local attempt itself.
-    assert local.recognitions == ["que luzes estão ligadas?"]
+    assert local.recognitions[0] == "que luzes estão ligadas?"
 
 
 @needs_stubs
@@ -550,7 +550,7 @@ async def test_answers_mode_never_executes_commands_locally() -> None:
 
     result = await agent.async_process(_input("ligar a luz pequena [música]"))
 
-    assert local.recognitions == ["ligar a luz pequena"]
+    assert local.recognitions[0] == "ligar a luz pequena"
     assert local.calls == []
     assert local.executions == []
     assert bridge.texts == ["ligar a luz pequena [música]"]
@@ -603,7 +603,7 @@ async def test_multi_clause_request_is_never_truncated_or_executed() -> None:
     text = "desligar a luz pequena. afinal, não desligues."
     result = await agent.async_process(_input(text))
 
-    assert local.recognitions == [text]
+    assert local.recognitions[0] == text
     assert local.calls == []
     assert local.executions == []
     assert bridge.texts == [text]
@@ -656,3 +656,94 @@ async def test_timeout_and_message_share_one_constant(monkeypatch) -> None:
     assert str(excinfo.value) == (
         f"Hermes did not respond within {QUERY_TIMEOUT_SECONDS:.0f} seconds"
     )
+
+
+# ---------------------------------------------------------------------------
+# Whisper tails: a noisy transcript must not push a house command to the agent
+# ---------------------------------------------------------------------------
+@needs_stubs
+async def test_noise_only_transcript_answers_without_calling_hermes() -> None:
+    """A transcript with no words at all is answered locally, not by the agent."""
+    agent, bridge = _make_agent(LOCAL_INTENTS_COMMANDS)
+    _use_local_agent({})
+
+    result = await agent.async_process(_input("[SOM DE EQUIPA DE FUNDO]"))
+
+    assert bridge.texts == []
+    assert "Não percebi" in _speech(result)
+
+
+@needs_stubs
+async def test_bracketed_noise_does_not_hijack_a_house_command() -> None:
+    agent, bridge = _make_agent(LOCAL_INTENTS_COMMANDS)
+    local = _use_local_agent({"ligar a luz pequena": (ACTION, "Ligado")})
+
+    result = await agent.async_process(
+        _input("ligar a luz pequena [SOM DE EQUIPA DE FUNDO]")
+    )
+
+    assert local.executions == ["ligar a luz pequena"]
+    assert bridge.texts == []
+    assert _speech(result) == "Ligado"
+
+
+@needs_stubs
+async def test_two_commands_in_one_phrase_never_run_half_locally() -> None:
+    """A multi-clause order always goes to Hermes: running half is worse."""
+    text = "desligar a luz pequena. ligar a luz grande."
+    agent, bridge = _make_agent(LOCAL_INTENTS_COMMANDS)
+    local = _use_local_agent(
+        {
+            "desligar a luz pequena": (ACTION, "Desligado"),
+            "ligar a luz grande": (ACTION, "Ligado"),
+        }
+    )
+
+    await agent.async_process(_input(text))
+
+    assert local.executions == []
+    assert bridge.texts == [text]
+
+
+@needs_stubs
+async def test_short_cancellation_clause_is_never_dropped() -> None:
+    """A one-word cancellation between commands must block local execution."""
+    text = "ligar a luz pequena. cancela. ligar a luz grande."
+    agent, bridge = _make_agent(LOCAL_INTENTS_COMMANDS)
+    local = _use_local_agent(
+        {
+            "ligar a luz pequena": (ACTION, "Ligado"),
+            "ligar a luz grande": (ACTION, "Ligado"),
+        }
+    )
+
+    await agent.async_process(_input(text))
+
+    assert local.executions == []
+    assert bridge.texts == [text]
+
+
+@needs_stubs
+async def test_parenthesised_cancellation_is_not_stripped() -> None:
+    """Real speech inside parentheses is never discarded as an annotation."""
+    text = "desligar a luz pequena (afinal, não desligues)"
+    agent, bridge = _make_agent(LOCAL_INTENTS_COMMANDS)
+    local = _use_local_agent({"desligar a luz pequena": (ACTION, "Desligado")})
+
+    await agent.async_process(_input(text))
+
+    assert local.executions == []
+    assert bridge.texts == [text]
+
+
+@needs_stubs
+async def test_unknown_bracketed_text_is_not_stripped() -> None:
+    """Only known non-speech markers are removed, recognised or not."""
+    text = "ligar a luz pequena [NÃO DESLIGUES]"
+    agent, bridge = _make_agent(LOCAL_INTENTS_COMMANDS)
+    local = _use_local_agent({"ligar a luz pequena": (ACTION, "Ligado")})
+
+    await agent.async_process(_input(text))
+
+    assert local.executions == []
+    assert bridge.texts == [text]

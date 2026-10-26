@@ -148,6 +148,83 @@ def _local_candidate(text: str) -> str:
     return _strip_non_speech_markers(text)
 
 
+# ---------------------------------------------------------------------------
+# Anotações de não-fala que o whisper põe no MEIO da transcrição, não só no
+# fim. Medido a 25/09/2026 no painel de voz:
+#   "ligar a luz pequena"                          -> 0,14 s (intent local)
+#   "ligar a luz pequena [SOM DE EQUIPA DE FUNDO]" -> 8,71 s (ia ao agente)
+# Só se TENTA o caminho local com a variante limpa; o texto enviado ao Hermes
+# continua a ser o original, byte a byte.
+#
+# A remoção é restrita aos marcadores de não-fala CONHECIDOS
+# (`_NON_SPEECH_MARKERS`, mais os nomes compostos que se observaram no painel).
+# Nunca se apaga conteúdo arbitrário entre parênteses: "desligar a luz pequena
+# (afinal, não desligues)" é fala a sério, e descartá-la executaria a primeira
+# metade. Um reconhecimento de intent falhado NÃO prova que o texto era ruído,
+# por isso o reconhecedor não é usado como autorização para cortar.
+# ---------------------------------------------------------------------------
+# Segmentos entre [], () ou * * — onde o whisper escreve as anotações.
+_ANOTACAO = re.compile(r"\[([^\]]*)\]|\(([^)]*)\)|\*([^*]*)\*")
+# Marcadores de não-fala compostos, observados no painel de voz; além da lista
+# `_NON_SPEECH_MARKERS`, que cobre as anotações curtas do whisper.
+_MARCADORES_COMPOSTOS = frozenset(
+    {
+        "som de equipa de fundo",
+        "som de equipa",
+        "som de fundo",
+        "barulho de fundo",
+        "ruido de fundo",
+        "ruído de fundo",
+        "musica de fundo",
+        "música de fundo",
+        "voz de fundo",
+        "equipa de fundo",
+    }
+)
+
+
+def _e_marcador_de_nao_fala(inner: str) -> bool:
+    """True só para conteúdo que é um marcador de não-fala conhecido."""
+    valor = re.sub(r"\s+", " ", (inner or "").strip().strip("_").lower()).strip()
+    if not valor:
+        # Segmento vazio ("[]") não tem fala nenhuma: nada se perde ao removê-lo.
+        return True
+    if _is_non_speech_marker(valor):
+        return True
+    return valor in _MARCADORES_COMPOSTOS
+
+
+def _sem_anotacoes(text: str) -> str:
+    """Remover do texto apenas os marcadores de não-fala conhecidos.
+
+    Devolve o texto sem esses segmentos; se nada for reconhecido como marcador,
+    devolve o texto tal e qual (nunca fica pior do que veio).
+    """
+
+    def _sub(match: re.Match[str]) -> str:
+        inner = next((g for g in match.groups() if g is not None), "")
+        # Conteúdo a sério entre parênteses fica onde está.
+        return " " if _e_marcador_de_nao_fala(inner) else match.group(0)
+
+    novo = _ANOTACAO.sub(_sub, text or "")
+    novo = re.sub(r"\s+", " ", novo).strip(" ,;:-")
+    return novo or text
+
+
+def _sem_letras(text: str) -> bool:
+    """True quando a transcrição não tem uma única palavra (só anotações/símbolos).
+
+    Serve para responder a ruído em milissegundos em vez de acordar o agente (que
+    gastava ~5 s a dizer "Não percebi"). Exemplos reais do log de voz:
+    "[SOM DE EQUIPE]", "♪ ♪ ♪ ♪", "[barulho de água]".
+    """
+    restante = _ANOTACAO.sub(
+        lambda m: " " if _e_marcador_de_nao_fala(m.group(1) or m.group(2) or m.group(3) or "") else m.group(0),
+        text or "",
+    )
+    return not re.search(r"[^\W_]+", restante, flags=re.UNICODE)
+
+
 def _resposta_texto(result: ConversationResult) -> str:
     """Extrair o texto falado de uma resposta de intent (vazio se não houver)."""
     try:
@@ -251,25 +328,63 @@ class HermesConversationAgent(ConversationEntity):
         if modo == LOCAL_INTENTS_OFF or not text:
             return None
 
-        candidato = _local_candidate(text)
-        resultado = await self._tenta_local(user_input, candidato, modo)
-        if resultado is None:
-            return None
+        # Ruído puro — o painel apanhou a televisão ou a sala e o whisper só
+        # devolveu uma anotação ("[SOM DE EQUIPE]", "♪ ♪ ♪"). Nenhum intent o vai
+        # reconhecer: o agente só servia para gastar ~5 s a dizer "Não percebi"
+        # (medido no log de voz de 26/09, 00:40). Responde-se aqui, sem sair.
+        if _sem_letras(text):
+            _LOGGER.info("Transcrição sem palavras (%r): resposta imediata", text)
+            return self._make_error_result(
+                user_input.language or "pt", "Não percebi, podes repetir?"
+            )
 
-        if modo == LOCAL_INTENTS_ANSWERS:
-            if not _resposta_texto(resultado):
-                return None
-            _LOGGER.info("Consulta respondida localmente pelo HA: %r", candidato)
+        # Vários candidatos, do mais fiel ao mais tolerante. Medido em 25/09: o
+        # whisper cola caudas que o HA não reconhece e um comando simples
+        # ("desligar a luz pequena") caía no agente — 0,01 s contra 8-19 s.
+        for candidato in self._candidatos_locais(text):
+            resultado = await self._tenta_local(user_input, candidato, modo)
+            if resultado is None:
+                continue
+
+            if modo == LOCAL_INTENTS_ANSWERS:
+                if not _resposta_texto(resultado):
+                    continue
+                _LOGGER.info("Consulta respondida localmente pelo HA: %r", candidato)
+                return resultado
+
+            _LOGGER.warning(
+                "Intent do HA processado localmente, sem passar pelo Hermes: %r",
+                candidato,
+            )
+            # A returned response means HA matched and processed the strict intent.
+            # Return errors too: falling through after a handler error could execute
+            # the same command a second time through Hermes.
             return resultado
 
-        _LOGGER.warning(
-            "Intent do HA processado localmente, sem passar pelo Hermes: %r",
-            candidato,
-        )
-        # A returned response means HA matched and processed the strict intent.
-        # Return errors too: falling through after a handler error could execute
-        # the same command a second time through Hermes.
-        return resultado
+        # Frases com VÁRIAS ordens continuam a ir ao Hermes: executar partes
+        # soltas de uma frase ("ligar a luz pequena. cancela. ligar a luz
+        # grande.") executa metade e descarta a outra — pior do que esperar pelo
+        # agente. Ver test_multi_clause_request_is_never_truncated_or_executed.
+        return None
+
+    def _candidatos_locais(self, text: str) -> list[str]:
+        """Candidatos para o caminho local, do mais fiel ao mais tolerante.
+
+        O primeiro é a limpeza estrita de sempre (marcadores de não-fala no
+        fim). O segundo existe porque o whisper escreve as suas anotações ENTRE
+        frases, não só no fim: ``ligar a luz pequena [SOM DE EQUIPA DE FUNDO]``
+        era empurrado para o agente (8,71 s medidos) enquanto a mesma ordem
+        limpa resolvia em 0,14 s.
+
+        A variante 2 só apaga marcadores de não-fala CONHECIDOS
+        (`_e_marcador_de_nao_fala`). Texto legítimo entre parênteses — mesmo que
+        o HA não o reconheça como intent — nunca é descartado.
+        """
+        estrito = _local_candidate(text)
+        sem_anotacoes = _sem_anotacoes(estrito)
+        if sem_anotacoes and sem_anotacoes != estrito:
+            return [estrito, sem_anotacoes]
+        return [estrito]
 
     async def _tenta_local(
         self, user_input: ConversationInput, text: str, modo: str
@@ -400,6 +515,7 @@ class HermesConversationAgent(ConversationEntity):
 
         if not response_speech:
             response_speech = "I processed your request but got no response."
+
 
         response = intent.IntentResponse(language=language)
         response.async_set_speech(response_speech)
