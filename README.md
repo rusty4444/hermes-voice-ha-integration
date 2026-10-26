@@ -27,7 +27,7 @@ This repository is a bundle of three pieces:
 
 The Python wheel is intentionally plugin-focused. Use the GitHub tag or source distribution for the full HACS/custom-component/add-on bundle.
 
-> **v0.0.17 (2026-10-25):** restores the owning profile's home and secret scope for each HA receiver request and retries failed initial WebSocket connections. The registration-time scope fix in `v0.0.16` was insufficient for the multiplexed setup in [#49](https://github.com/rusty4444/hermes-voice-ha-integration/issues/49). After updating both components and removing the workaround, [the reporter confirmed](https://github.com/rusty4444/hermes-voice-ha-integration/issues/49#issuecomment-6390381851) `/health` returning 200 with `auth_required: true`, Assist replies through `conversation.process` and Voice PE, and automatic reconnection on Hermes 0.22.2/Python 3.14 with `multiplex_profiles: true`. Update both the HA integration and Hermes-side plugins, then restart Home Assistant and the Hermes process that owns the receiver port; on the reported installation that was `hermes dashboard`, not the gateway. This is confirmation of that setup, not a guarantee for every Home Assistant or voice deployment.
+> **v0.0.18 (2026-10-27):** creates the optional insecure TLS context in HA's executor rather than blocking its event loop, and improves opt-in local intent matching for known Whisper non-speech annotations. Real parenthesised speech, cancellation clauses and multiple commands remain intact for Hermes; local intent handling still defaults to `off`. Thanks to Joel Silva ([@byjaps](https://github.com/byjaps)) for [#56](https://github.com/rusty4444/hermes-voice-ha-integration/pull/56) and [#57](https://github.com/rusty4444/hermes-voice-ha-integration/pull/57). Update both the HA integration and Hermes-side plugins, then restart Home Assistant and the Hermes process owning the receiver port, which may be `hermes dashboard` rather than the gateway. See the [changelog](CHANGELOG.md) for scope and limitations.
 
 ---
 
@@ -162,7 +162,7 @@ Keep this token private. It can control your Home Assistant instance with your a
 Install or upgrade the package directly from GitHub, then run the bundled plugin installer:
 
 ```bash
-python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.17"
+python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.18"
 hermes-ha-install-plugins
 ```
 

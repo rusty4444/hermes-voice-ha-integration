@@ -910,7 +910,7 @@ wheels = [
 
 [[package]]
 name = "hermes-voice-ha-integration"
-version = "0.0.17"
+version = "0.0.18"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

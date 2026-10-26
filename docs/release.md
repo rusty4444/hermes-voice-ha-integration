@@ -10,17 +10,18 @@ This repository ships three installation surfaces:
 
 The Python wheel is intentionally plugin-focused. The source distribution and GitHub tag contain the full bundle, including the Home Assistant custom component, add-on scaffold, docs, and skills.
 
-## v0.0.17 release notes (2026-10-25)
+## v0.0.18 release notes (2026-10-27)
 
-- Restore the listener owner's Hermes home and profile-secret scope for each health and WebSocket request, including awaited Assist callbacks ([#53](https://github.com/rusty4444/hermes-voice-ha-integration/pull/53)). The registration-time fix in v0.0.16 was insufficient for the multiplexed gateway reported in [#49](https://github.com/rusty4444/hermes-voice-ha-integration/issues/49).
-- Retry failed initial Home Assistant WebSocket connections when the Hermes gateway becomes available ([#52](https://github.com/rusty4444/hermes-voice-ha-integration/pull/52)).
-- Keep the Python package, HACS integration, add-on scaffold and both Hermes plugin manifests aligned at 0.0.17.
+- Create the optional insecure TLS context in HA's executor without changing the existing verification defaults ([#56](https://github.com/rusty4444/hermes-voice-ha-integration/pull/56)).
+- Match opt-in local intents after removing only known Whisper non-speech annotations. Keep real speech, cancellations and multi-command transcripts intact for Hermes, and keep local processing disabled by default ([#57](https://github.com/rusty4444/hermes-voice-ha-integration/pull/57)).
+- Keep the Python package, HACS integration, add-on scaffold, both Hermes plugin manifests, lockfile and version assertions aligned at 0.0.18.
+- Thanks to Joel Silva ([@byjaps](https://github.com/byjaps)) for both runtime changes.
 
 ### Upgrade and reporter confirmation
 
-Update the HA integration through HACS or manual copy, reinstall the Hermes-side plugins using the v0.0.17 pip command in the README, and restart both Home Assistant and Hermes. Updating HACS alone does not replace the Hermes-side plugins.
+Update the HA integration through HACS or manual copy, reinstall the Hermes-side plugins using the v0.0.18 pip command in the README, and restart Home Assistant and the Hermes process owning the receiver port. On the multiplexed installation reported in #49 that process was `hermes dashboard`, not the gateway. Updating HACS alone does not replace the Hermes-side plugins.
 
-Keep #49 open until the reporter confirms authentication, Assist replies and reconnection after a gateway restart on Hermes 0.22.2/Python 3.14. Local automated tests use mocked HA objects and loopback WebSocket clients; they do not establish live Home Assistant or end-to-end voice compatibility. Edge TTS requires an external service, and the add-on remains an early scaffold.
+Issue #49 was confirmed resolved on v0.0.17 and closed after reporter acceptance; that evidence is not a live acceptance test for the new local-intent changes. Other reporter-dependent issues remain open. Local automated tests use mocked HA objects and loopback WebSocket clients; they do not establish live Home Assistant or end-to-end voice compatibility. Edge TTS requires an external service, and the add-on remains an early scaffold. Panel HUD markers proposed in #58 are not implemented by this release.
 
 ## Maintainer checklist
 
@@ -32,6 +33,7 @@ Keep #49 open until the reporter confirms authentication, Assist replies and rec
    - `addon/config.yaml`
    - `plugins/home_assistant/plugin.yaml`
    - `plugins/voice_stack/plugin.yaml`
+   - `uv.lock` and the version assertions in `tests/test_plugin.py`
    - README release line
 4. Run local verification:
 
