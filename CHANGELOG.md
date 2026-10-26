@@ -4,6 +4,18 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-10-27
+
+### Fixed
+- Create the optional insecure TLS context through Home Assistant's executor before constructing the WebSocket client, avoiding blocking certificate loading on the event loop. TLS verification defaults and configuration are unchanged. ([#56](https://github.com/rusty4444/hermes-voice-ha-integration/pull/56), thanks Joel Silva [@byjaps](https://github.com/byjaps).)
+- Improve the opt-in local intent path for known Whisper non-speech annotations, including noise-only input. Preserve real parenthesised speech, unknown annotations, cancellation clauses and multi-command requests; when Hermes is needed, forward the original transcript unchanged. Local intent handling remains `off` by default. ([#57](https://github.com/rusty4444/hermes-voice-ha-integration/pull/57), thanks @byjaps.)
+
+### Release metadata
+- Align all five installation-surface versions, the lockfile and version assertions at 0.0.18. Refresh install and release documentation.
+
+### Validation and limitations
+- Automated tests use mocked Home Assistant objects and loopback clients, not a live device/voice acceptance test. The add-on remains an early scaffold; this release does not introduce panel HUD marker control or change local-intent safety policy.
+
 ### Documentation
 - Record @hanleymk's v0.0.17 confirmation for multiplexed Hermes 0.22.2/Python 3.14 and clarify that upgrades must restart the process owning the receiver port, which can be a dashboard rather than the gateway.
 
