@@ -43,7 +43,32 @@
           "wake_word": "Wake-word keyword(s) (one per line or comma-separated)",
           "media_player_entity": "Media player entity ID for TTS playback"
         }
+      },
+      "panel": {
+        "title": "Voice panel control (optional)",
+        "description": "Optional. Lets Hermes show a line of text, set the screen brightness and set the speaker volume on one voice panel, using [HW:...] markers in its reply. The markers are removed before the reply is spoken. Leave the panel device empty to keep this off. Each route also needs its entity. Brightness and volume are always kept within the ranges below, whatever Hermes asks for. Requires the Hermes-side plugins from the same release.",
+        "data": {
+          "panel_device_id": "Panel device (Assist satellite)",
+          "panel_hud_entity": "HUD text entity",
+          "panel_light_entity": "Screen light",
+          "panel_volume_entity": "Speaker volume entity",
+          "panel_hud_max_length": "Maximum HUD text length",
+          "panel_brightness_min": "Minimum screen brightness (%)",
+          "panel_brightness_max": "Maximum screen brightness (%)",
+          "panel_volume_min": "Minimum speaker volume (%)",
+          "panel_volume_max": "Maximum speaker volume (%)"
+        },
+        "data_description": {
+          "panel_device_id": "Markers are handled only for Assist requests from this device. Empty means off.",
+          "panel_hud_entity": "A text or input_text entity the panel displays. Empty disables the HUD route.",
+          "panel_light_entity": "The panel's screen backlight. Empty disables the brightness route.",
+          "panel_volume_entity": "A number or input_number entity for the panel speaker. Percentages map onto the entity's own min-max range. Empty disables the volume route.",
+          "panel_hud_max_length": "Longer HUD text is cut to this length, or to the entity's own maximum if that is lower."
+        }
       }
+    },
+    "error": {
+      "panel_min_above_max": "The minimum can't be higher than the maximum."
     }
   }
 }

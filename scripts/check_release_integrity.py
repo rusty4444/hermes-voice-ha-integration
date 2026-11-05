@@ -45,6 +45,7 @@ REQUIRED_FILES = [
     "custom_components/hermes/frontend.py",
     "custom_components/hermes/hacsfiles/hermes_action_bar.js",
     "custom_components/hermes/manifest.json",
+    "custom_components/hermes/panel.py",
     "custom_components/hermes/services.yaml",
     "custom_components/hermes/strings.json",
     "custom_components/hermes/translations/en.json",
@@ -67,6 +68,7 @@ WHEEL_REQUIRED = [
     "plugins/home_assistant/README.md",
     "plugins/voice_stack/plugin.yaml",
     "plugins/voice_stack/README.md",
+    "plugins/voice_stack/panel_prompt.py",
 ]
 
 SDIST_REQUIRED = REQUIRED_FILES + ["README.md", "CHANGELOG.md", "pyproject.toml"]

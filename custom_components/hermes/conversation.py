@@ -40,6 +40,14 @@ from .const import (
     LOCAL_INTENTS_OPTIONS,
     MAX_QUERY_TEXT_LENGTH,
 )
+from .panel import (
+    PanelConfig,
+    async_dispatch,
+    extract_markers,
+    fallback_speech,
+    panel_for_turn,
+    plan_calls,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -445,6 +453,29 @@ class HermesConversationAgent(ConversationEntity):
             conversation_id=user_input.conversation_id,
         )
 
+    def _apply_panel_markers(
+        self, panel: PanelConfig, speech: str, language: str, context: Any
+    ) -> str:
+        """Strip panel markers from ``speech`` and dispatch the valid ones.
+
+        Every marker-shaped span is removed, but only well-formed markers for
+        enabled routes run, within the configured limits. Service calls run in
+        a background task, so a slow or failing device never delays the reply.
+        """
+        cleaned, markers = extract_markers(speech)
+        if not markers and cleaned == speech:
+            return speech
+
+        calls = plan_calls(markers, panel, self.hass.states.get)
+        if calls:
+            self.hass.async_create_task(
+                async_dispatch(self.hass, calls, context),
+                f"{DOMAIN} panel markers",
+            )
+        if not cleaned and calls:
+            return fallback_speech(language)
+        return cleaned
+
     async def async_process(self, user_input: ConversationInput) -> ConversationResult:
         """Process a conversation input from the Assist pipeline.
 
@@ -485,11 +516,22 @@ class HermesConversationAgent(ConversationEntity):
         if local_result is not None:
             return local_result
 
+        # Opt-in panel control (#58): only for turns from the configured panel
+        # device. Every other request keeps the original payload and reply.
+        panel = panel_for_turn(
+            getattr(self._entry, "options", None),
+            getattr(user_input, "device_id", None),
+        )
+        panel_kwargs: dict[str, Any] = {}
+        if panel is not None:
+            panel_kwargs = {"device_id": panel.device_id, "panel": panel.as_payload()}
+
         try:
             result = await self._bridge.async_send_conversation_query(
                 text=text,
                 conversation_id=conversation_id,
                 language=language,
+                **panel_kwargs,
             )
         except (ConnectionError, TimeoutError) as exc:
             _LOGGER.warning("Hermes conversation query failed: %s", exc)
@@ -513,9 +555,13 @@ class HermesConversationAgent(ConversationEntity):
         else:
             response_speech = response_text
 
+        if panel is not None and response_speech:
+            response_speech = self._apply_panel_markers(
+                panel, str(response_speech), language, getattr(user_input, "context", None)
+            )
+
         if not response_speech:
             response_speech = "I processed your request but got no response."
-
 
         response = intent.IntentResponse(language=language)
         response.async_set_speech(response_speech)
