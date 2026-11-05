@@ -192,6 +192,46 @@ async def test_frontend_tolerates_an_existing_static_route() -> None:
     assert http.calls == 1
 
 
+class AiohttpRouterHttp:
+    """Register static paths on a real aiohttp router, the way HA's http does.
+
+    Home Assistant's ``_async_register_static_paths`` ends in
+    ``app.router.add_route("GET", url_path, ...)``. Using the real router pins
+    the duplicate-route guard to aiohttp's actual error text (#43), so an
+    upstream wording change fails here instead of breaking entry setup.
+    """
+
+    def __init__(self) -> None:
+        from aiohttp import web
+
+        self.app = web.Application()
+        self.calls = 0
+
+    async def async_register_static_paths(self, paths: list[Any]) -> None:
+        from aiohttp import web
+
+        async def _serve(request: web.Request) -> web.Response:  # pragma: no cover
+            return web.Response()
+
+        self.calls += 1
+        for config in paths:
+            url_path = getattr(config, "url_path", None) or config[0][0]
+            self.app.router.add_route("GET", url_path, _serve)
+
+
+@pytest.mark.asyncio
+async def test_frontend_tolerates_real_aiohttp_duplicate_route() -> None:
+    """A route left from an earlier setup must not abort the next setup (#43)."""
+    http = AiohttpRouterHttp()
+
+    # First setup registers the route and records it in hass.data.
+    await async_register_resources(SimpleNamespace(data={}, http=http))
+    # A later setup without the in-memory flag hits aiohttp's duplicate check.
+    await async_register_resources(SimpleNamespace(data={}, http=http))
+
+    assert http.calls == 2
+
+
 @pytest.mark.asyncio
 async def test_frontend_does_not_hide_unrelated_registration_errors() -> None:
     """Only the known duplicate-route error is safe to suppress."""
