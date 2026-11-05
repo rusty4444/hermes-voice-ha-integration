@@ -4,8 +4,22 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-11-06
+
 ### Added
-- Optional voice-panel control through inline `[HW:...]` markers, off by default. A new third options page selects one panel device and its HUD text, screen light and speaker volume entities, with length, brightness and volume limits. For requests from that device only, `assist_query` carries `device_id` and a `panel` route/limit description, the bundled `voice_stack` receiver adds the marker convention to its prompt, and the reply's markers are removed before speech and turned into bounded, non-blocking service calls. Broken markers are removed but never run; unknown routes and missing entities are skipped. All other requests keep the previous payload, prompt and reply. ([#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58), design by Joel Silva [@byjaps](https://github.com/byjaps).)
+- Optional voice-panel control through inline `[HW:...]` markers, off by default. A new third options page selects one panel device and its HUD text, screen light and speaker volume entities, with length, brightness and volume limits. For requests from that device only, `assist_query` carries `device_id` and a `panel` route/limit description, the bundled `voice_stack` receiver adds the marker convention to its prompt, and the reply's markers are removed before speech and turned into bounded, non-blocking service calls. Broken markers are removed but never run; unknown routes and missing entities are skipped. All other requests keep the previous payload, prompt and reply. ([#63](https://github.com/rusty4444/hermes-voice-ha-integration/pull/63); proposed in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58), design by Joel Silva [@byjaps](https://github.com/byjaps).)
+
+### Documentation
+- Correct the README's Assist round-trip section. It said the `assist_query`/`assist_response` handlers still had to be implemented on the Hermes Agent server side; the bundled `voice_stack` plugin has answered `assist_query` since v0.0.11. The README now quotes the message Assist actually speaks on timeout, gives ordered troubleshooting checks (plugin version, listener owner, sensor, `/health` counters, model) and states that the bundled handler makes one LLM completion without tool calls, so house commands through Assist need local intent handling. New tests tie the README to the shipped receiver and error text. ([#61](https://github.com/rusty4444/hermes-voice-ha-integration/pull/61); addresses [#60](https://github.com/rusty4444/hermes-voice-ha-integration/issues/60) and [#33](https://github.com/rusty4444/hermes-voice-ha-integration/issues/33).)
+
+### Tests
+- Pin the frontend's duplicate static-route guard to the error real aiohttp raises, so a change in that wording can't quietly bring back the startup crash from [#43](https://github.com/rusty4444/hermes-voice-ha-integration/issues/43). The fix itself shipped in v0.0.14 ([#44](https://github.com/rusty4444/hermes-voice-ha-integration/pull/44)). ([#62](https://github.com/rusty4444/hermes-voice-ha-integration/pull/62).)
+
+### Release metadata
+- Align all five installation-surface versions, the lockfile and version assertions at 0.0.19.
+
+### Validation and limitations
+- Automated tests use mocked Home Assistant objects and loopback clients, not a live device or voice acceptance test. Panel markers have not yet been tested on a real panel. They need the Home Assistant integration and the Hermes-side plugins from this release; an older `voice_stack` ignores the new `panel` field. The add-on remains an early scaffold.
 
 ## [0.0.18] - 2026-10-27
 
