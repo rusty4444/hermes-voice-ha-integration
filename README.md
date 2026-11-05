@@ -352,7 +352,9 @@ Do **not** enter `http://homeassistant.local:8123` in the Hermes URL field. That
 
 This integration registers a Home Assistant Assist conversation agent (`HermesConversationAgent`) on the `Platform.CONVERSATION` platform and handles both incoming `assist_query` and outgoing `assist_response` WebSocket messages. After setup, Hermes will appear in the **Preferred conversation agent** selector under **Settings → Voice assistants**.
 
-> **Important:** The Hermes Agent server must handle the `assist_query` and `assist_response` WebSocket message types for the conversation pipeline to work end-to-end. The HA integration forwards queries and awaits responses, but if the Hermes Agent does not recognise these message types, conversation queries time out after 45 seconds. See [Hermes Agent WebSocket message types](#hermes-agent-websocket-message-types) below for the protocol contract.
+> **Important:** the Hermes side of this round trip ships in this repository. The `voice_stack` plugin from [Step 3](#step-3--install-the-hermes-plugins) answers every `assist_query` with an `assist_response` (since v0.0.11), so you don't need to implement anything else or wait for another release. HACS only updates the Home Assistant side: install or upgrade the Hermes-side plugins with `hermes-ha-install-plugins`, then restart the Hermes process that owns port 7860. If the plugin is missing or older than v0.0.11, Assist queries time out after 45 seconds. See [Assist pipeline times out](#assist-pipeline-times-out-with-sorry-hermes-is-not-responding-right-now) for checks.
+>
+> The bundled handler replies with a single Hermes LLM completion. It does **not** run Hermes tools, so through Assist it can answer and converse but cannot itself call Home Assistant services; it may reply as though it acted. For house commands spoken through Assist, use [local HA intent handling](#local-ha-intent-handling-opt-in-off-by-default) in `commands` mode or HA's own pipeline option **Prefer handling commands locally**.
 
 5. Submit.
 
@@ -739,21 +741,31 @@ HASS_URL=http://192.168.1.50:8123
 - Confirm `hacs.json` is at the repository root if using HACS.
 - Confirm the resource URL is `/hermes_static/hermes_action_bar.js`.
 
-### Assist pipeline times out with "Sorry, I couldn't reach Hermes"
+### Assist pipeline times out with "Sorry, Hermes is not responding right now."
 
-This means the HA integration sent an `assist_query` WebSocket message but never received an `assist_response` within 45 seconds.
+Assist speaks this when the HA integration either could not send the `assist_query` (the WebSocket to Hermes is down) or did not receive an `assist_response` within 45 seconds.
 
-**Check:**
-- Confirm the Hermes Agent server recognises the `assist_query` message type. If the WebSocket reader discards unknown types, no response is ever sent.
-- Check that the Hermes Agent sends a valid `assist_response` with the same `conversation_id` as the request.
-- The conversation agent expects exactly one response per query — multiple responses for the same ID are silently dropped.
-- See the [Hermes Agent WebSocket message types](#hermes-agent-websocket-message-types) section for the full protocol contract.
+The receiver that answers `assist_query` is the bundled `voice_stack` plugin; it is not a separate Hermes Agent feature. Check, in order:
 
-**Hermes Agent implementation checklist:**
+1. **The Hermes-side plugins are current.** HACS updates only the Home Assistant integration. Reinstall the plugins from the same release, as in [Step 3](#step-3--install-the-hermes-plugins):
+
+   ```bash
+   python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.18"
+   hermes-ha-install-plugins
+   ```
+
+   The installed `voice_stack/ws_receiver.py` must contain `async def handle_assist_query`. v0.0.10 and older copies do not, and every Assist query times out.
+2. **The right Hermes process was restarted.** Restart whichever process holds port 7860 (`hermes dashboard`, the gateway, or a CLI session), not just any Hermes process.
+3. **Home Assistant is connected.** `sensor.hermes_gateway_status` should be `on`. If it is `off`, check the Hermes URL, the token and that port 7860 is reachable from Home Assistant.
+4. **The query reaches Hermes.** `curl http://<hermes-host>:7860/health` should show `"active_connections": 1` and an `assist_query` count under `message_counters` that rises with each Assist request. If the count stays at zero, Home Assistant is talking to a different host or port.
+5. **Hermes can reach its model.** The handler waits for one Hermes LLM completion. A slow or failing model provider produces a spoken error or, if the provider takes longer than 45 seconds, the same timeout.
+
+Only if you are writing your own receiver instead of using `voice_stack`:
+
 1. Handle incoming `{"type": "assist_query", "text": "...", "conversation_id": "...", "language": "..."}`.
-2. Process the query through the LLM pipeline.
+2. Generate a reply.
 3. Send `{"type": "assist_response", "text": "...", "conversation_id": "...", "speech": {"plain": {"speech": "...", "extra_data": null}}}`.
-4. Echo the `conversation_id` exactly — do not generate a new one.
+4. Echo the `conversation_id` exactly — do not generate a new one. The conversation agent expects exactly one response per query; extra responses for the same ID are dropped.
 
 ### Voice commands transcribe but do not play audio
 
@@ -789,7 +801,7 @@ Check:
 
 ## Hermes Agent WebSocket message types
 
-The Home Assistant integration communicates with the Hermes Agent server over WebSocket. For the Assist pipeline conversation agent to function, the Hermes Agent server **must** handle these message types. Without them, the pipeline handshake succeeds but all conversation queries time out after 45 seconds.
+The Home Assistant integration communicates with Hermes over WebSocket. The bundled `voice_stack` plugin implements both message types below (`plugins/voice_stack/ws_receiver.py`), so a normal install needs no extra work. This section documents the contract for debugging and for anyone writing an alternative receiver. A receiver that ignores `assist_query` lets the handshake succeed, but every conversation query then times out after 45 seconds.
 
 ### `assist_query` — incoming (Hermes Agent receives)
 
@@ -841,32 +853,32 @@ After processing the query, the Hermes Agent server must send back this response
 
 1. HA Assist pipeline receives user input (voice or text).
 2. HA sends `assist_query` WebSocket message to Hermes Agent.
-3. Hermes Agent processes the query (LLM, tool calls, HA service calls).
-4. Hermes Agent sends `assist_response` with the answer.
+3. The `voice_stack` receiver generates a reply with one Hermes LLM completion (`ctx.llm.acomplete`). Hermes tools are not run on this path.
+4. The receiver sends `assist_response` with the answer, or a spoken fallback if the handler is unavailable or fails.
 5. HA Assist pipeline renders the response in its UI and/or speaks it via TTS.
 
-If no response is received within 45 seconds, the pipeline falls back to an error speech message ("Sorry, I couldn't reach Hermes").
+If no response is received within 45 seconds, the pipeline falls back to an error speech message ("Sorry, Hermes is not responding right now.").
 
 ### Implementation reference
 
-The reader task in `custom_components/hermes/__init__.py` routes incoming messages by `type`. When `type == "assist_response"`, the message is resolved to the pending `asyncio.Future` created by `HermesConversationAgent.async_process()`. The conversation agent uses `_send_and_wait()` to send the query and await the response future.
+The reader task in `custom_components/hermes/__init__.py` routes incoming messages by `type`. When `type == "assist_response"`, the message resolves the pending `asyncio.Future` that `HermesBridge.async_send_conversation_query()` created for that `conversation_id`; `HermesConversationAgent.async_process()` awaits that call. On the Hermes side, `handle_assist_query()` in `plugins/voice_stack/ws_receiver.py` builds the `assist_response`.
 
-### Known limitations on the Hermes Agent side
+### Known limitations on the Hermes side
 
-- If the Hermes Agent does not recognise the `assist_query` type, the WebSocket reader discards it as unknown and no response is ever sent → 45-second timeout.
+- A receiver that does not recognise `assist_query` (for example a `voice_stack` plugin from v0.0.10 or older) never sends a response → 45-second timeout.
 - If the Hermes Agent sends a response with a mismatched `conversation_id`, the future lookup in the HA integration fails and the response is dropped.
 - The conversation agent expects exactly one `assist_response` per `assist_query`. Sending multiple responses for the same `conversation_id` will deliver only the first one.
 
 ---
 
-## Known limitations in `v0.0.8`
+## Known limitations
 
 - The voice stack is usable as engine wrappers and Hermes tools, but room-grade voice satellite UX still needs more work.
 - TTS audio delivery to HA media players may need an HTTP/media bridge depending on deployment topology.
 - The add-on scaffold may need environment-specific build adjustments before it is suitable as the primary install path for every HA setup.
 - The Lovelace action bar is intentionally minimal.
 - The HA custom integration and Hermes plugins are released together in one repo for now; future releases may split packaging by install target.
-- The `assist_query` / `assist_response` WebSocket message types must be implemented on the Hermes Agent server side for the Assist pipeline conversation agent to work end-to-end. See [Hermes Agent WebSocket message types](#hermes-agent-websocket-message-types) above for the full protocol contract.
+- Assist replies come from a single Hermes LLM completion without tool calls. Hermes answers through Assist, but house commands spoken through Assist need local HA intent handling (or HA's own local command handling) to actually run.
 
 
 ---
