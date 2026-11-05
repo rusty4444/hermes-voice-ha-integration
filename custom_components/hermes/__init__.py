@@ -419,23 +419,32 @@ class HermesBridge:
         text: str,
         conversation_id: str | None = None,
         language: str = "en",
+        *,
+        device_id: str | None = None,
+        panel: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Send a conversation query to Hermes and wait for the response.
 
         Returns the response dict from Hermes (contains 'text' and
-        optionally 'speech' keys).
+        optionally 'speech' keys). ``device_id`` and ``panel`` are added only
+        for turns from a configured voice panel (#58); other queries keep the
+        original four-field payload.
         """
         import uuid
 
         if conversation_id is None:
             conversation_id = str(uuid.uuid4())
 
-        payload = {
+        payload: dict[str, Any] = {
             "type": "assist_query",
             "text": text,
             "conversation_id": conversation_id,
             "language": language,
         }
+        if device_id:
+            payload["device_id"] = device_id
+        if panel:
+            payload["panel"] = panel
 
         future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending_queries[conversation_id] = future

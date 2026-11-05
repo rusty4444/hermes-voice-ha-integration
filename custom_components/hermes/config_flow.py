@@ -20,8 +20,51 @@ from .const import (
     CONF_WAKE_WORD, DEFAULT_WAKE_WORD,
     CONF_MEDIA_PLAYER, DEFAULT_MEDIA_PLAYER,
     TTS_ENGINE_OPTIONS, STT_ENGINE_OPTIONS, WAKE_WORD_ENGINE_OPTIONS,
+    CONF_PANEL_DEVICE, CONF_PANEL_HUD_ENTITY, CONF_PANEL_LIGHT_ENTITY,
+    CONF_PANEL_VOLUME_ENTITY, CONF_PANEL_HUD_MAX_LENGTH,
+    CONF_PANEL_BRIGHTNESS_MIN, CONF_PANEL_BRIGHTNESS_MAX,
+    CONF_PANEL_VOLUME_MIN, CONF_PANEL_VOLUME_MAX,
+    DEFAULT_PANEL_HUD_MAX_LENGTH, PANEL_HUD_MAX_LENGTH_LIMIT,
+    DEFAULT_PANEL_BRIGHTNESS_MIN, DEFAULT_PANEL_BRIGHTNESS_MAX,
+    DEFAULT_PANEL_VOLUME_MIN, DEFAULT_PANEL_VOLUME_MAX,
+    PANEL_HUD_DOMAINS, PANEL_LIGHT_DOMAINS, PANEL_VOLUME_DOMAINS,
     normalize_list, normalize_wake_word,
 )
+from .panel import bounded_int, entity_or_empty
+
+_PANEL_ENTITY_FIELDS = (
+    (CONF_PANEL_HUD_ENTITY, PANEL_HUD_DOMAINS),
+    (CONF_PANEL_LIGHT_ENTITY, PANEL_LIGHT_DOMAINS),
+    (CONF_PANEL_VOLUME_ENTITY, PANEL_VOLUME_DOMAINS),
+)
+_PANEL_NUMBER_FIELDS = (
+    (CONF_PANEL_HUD_MAX_LENGTH, DEFAULT_PANEL_HUD_MAX_LENGTH, 1, PANEL_HUD_MAX_LENGTH_LIMIT),
+    (CONF_PANEL_BRIGHTNESS_MIN, DEFAULT_PANEL_BRIGHTNESS_MIN, 0, 100),
+    (CONF_PANEL_BRIGHTNESS_MAX, DEFAULT_PANEL_BRIGHTNESS_MAX, 0, 100),
+    (CONF_PANEL_VOLUME_MIN, DEFAULT_PANEL_VOLUME_MIN, 0, 100),
+    (CONF_PANEL_VOLUME_MAX, DEFAULT_PANEL_VOLUME_MAX, 0, 100),
+)
+
+
+def _parse_panel_options(user_input: dict) -> dict:
+    """Normalise the panel page. Empty device or entity means disabled."""
+    parsed: dict = {
+        CONF_PANEL_DEVICE: str(user_input.get(CONF_PANEL_DEVICE) or "").strip(),
+    }
+    for key, domains in _PANEL_ENTITY_FIELDS:
+        parsed[key] = entity_or_empty(user_input.get(key), domains)
+    for key, default, low, high in _PANEL_NUMBER_FIELDS:
+        parsed[key] = bounded_int(user_input.get(key), default, low, high)
+    return parsed
+
+
+def _panel_range_errors(parsed: dict) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if parsed[CONF_PANEL_BRIGHTNESS_MIN] > parsed[CONF_PANEL_BRIGHTNESS_MAX]:
+        errors[CONF_PANEL_BRIGHTNESS_MIN] = "panel_min_above_max"
+    if parsed[CONF_PANEL_VOLUME_MIN] > parsed[CONF_PANEL_VOLUME_MAX]:
+        errors[CONF_PANEL_VOLUME_MIN] = "panel_min_above_max"
+    return errors
 
 
 def _parse_list(value) -> list[str]:
@@ -198,10 +241,8 @@ class HermesOptionsFlow(OptionsFlow):
                     current.get(CONF_LOCAL_INTENTS, DEFAULT_LOCAL_INTENTS)
                 ),
             }
-            return self.async_create_entry(
-                title="",
-                data=merged,
-            )
+            self._pending = merged
+            return await self.async_step_panel()
 
         current_tts_engine = current.get(CONF_TTS_ENGINE, DEFAULT_TTS_ENGINE)
         current_stt_engine = current.get(CONF_STT_ENGINE, DEFAULT_STT_ENGINE)
@@ -248,5 +289,57 @@ class HermesOptionsFlow(OptionsFlow):
                     description={"suggested_value": current_mp},
                 ): str,
             }),
+        )
+
+    async def async_step_panel(self, user_input: dict | None = None) -> FlowResult:
+        """Step 3 — optional voice-panel control through [HW:...] markers.
+
+        Leaving the device empty keeps the feature off. Device and entity
+        fields use ``suggested_value`` rather than ``default`` so clearing a
+        field in the UI really clears it.
+        """
+        current = dict(self._config_entry.options or {})
+        if self._pending:
+            current.update(self._pending)
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            parsed = _parse_panel_options(user_input)
+            errors = _panel_range_errors(parsed)
+            if not errors:
+                current.update(parsed)
+                return self.async_create_entry(title="", data=current)
+            current.update(parsed)
+
+        schema: dict = {
+            vol.Optional(
+                CONF_PANEL_DEVICE,
+                description={"suggested_value": current.get(CONF_PANEL_DEVICE) or None},
+            ): selector.DeviceSelector(selector.DeviceSelectorConfig()),
+        }
+        for key, domains in _PANEL_ENTITY_FIELDS:
+            schema[vol.Optional(
+                key,
+                description={"suggested_value": current.get(key) or None},
+            )] = selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=list(domains))
+            )
+        for key, default, low, high in _PANEL_NUMBER_FIELDS:
+            schema[vol.Optional(
+                key,
+                default=bounded_int(current.get(key), default, low, high),
+            )] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=low,
+                    max=high,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+
+        return self.async_show_form(
+            step_id="panel",
+            data_schema=vol.Schema(schema),
+            errors=errors,
         )
 

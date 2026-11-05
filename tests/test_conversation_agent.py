@@ -112,6 +112,16 @@ def _install_homeassistant_stubs() -> bool:
         "TextSelectorType",
         SimpleNamespace(URL="url", PASSWORD="password"),
     )
+    for name in (
+        "DeviceSelector",
+        "DeviceSelectorConfig",
+        "EntitySelector",
+        "EntitySelectorConfig",
+        "NumberSelector",
+        "NumberSelectorConfig",
+    ):
+        setattr(selector_mod, name, lambda *a, **k: (a, k))
+    setattr(selector_mod, "NumberSelectorMode", SimpleNamespace(BOX="box", SLIDER="slider"))
     setattr(sys.modules["homeassistant.helpers"], "selector", selector_mod)
 
     # --- intent -----------------------------------------------------------
@@ -437,6 +447,10 @@ async def test_options_flow_persists_local_intents_mode() -> None:
     assert result["type"] == "form"
 
     result = await flow.async_step_voice({})
+    assert result["type"] == "form"
+    assert result["step_id"] == "panel"
+
+    result = await flow.async_step_panel({})
     assert result["type"] == "create_entry"
     assert result["data"][CONF_LOCAL_INTENTS] == LOCAL_INTENTS_ANSWERS
     assert config_flow_module._default_options()[CONF_LOCAL_INTENTS] == LOCAL_INTENTS_OFF
@@ -747,3 +761,505 @@ async def test_unknown_bracketed_text_is_not_stripped() -> None:
 
     assert local.executions == []
     assert bridge.texts == [text]
+
+
+# ---------------------------------------------------------------------------
+# Voice-panel markers (#58)
+# ---------------------------------------------------------------------------
+from custom_components.hermes import panel as panel_module  # noqa: E402
+from custom_components.hermes.const import (  # noqa: E402
+    CONF_PANEL_BRIGHTNESS_MAX,
+    CONF_PANEL_BRIGHTNESS_MIN,
+    CONF_PANEL_DEVICE,
+    CONF_PANEL_HUD_ENTITY,
+    CONF_PANEL_HUD_MAX_LENGTH,
+    CONF_PANEL_LIGHT_ENTITY,
+    CONF_PANEL_VOLUME_ENTITY,
+    CONF_PANEL_VOLUME_MAX,
+    CONF_PANEL_VOLUME_MIN,
+)
+
+PANEL_DEVICE = "panel-device-1"
+PANEL_OPTIONS = {
+    CONF_PANEL_DEVICE: PANEL_DEVICE,
+    CONF_PANEL_HUD_ENTITY: "text.panel_hud",
+    CONF_PANEL_LIGHT_ENTITY: "light.panel_backlight",
+    CONF_PANEL_VOLUME_ENTITY: "number.panel_volume",
+    CONF_PANEL_HUD_MAX_LENGTH: 60,
+    CONF_PANEL_BRIGHTNESS_MIN: 10,
+    CONF_PANEL_BRIGHTNESS_MAX: 80,
+    CONF_PANEL_VOLUME_MIN: 20,
+    CONF_PANEL_VOLUME_MAX: 70,
+}
+
+
+def _states(**overrides: Any) -> dict[str, Any]:
+    states = {
+        "text.panel_hud": SimpleNamespace(attributes={"min": 0, "max": 255}),
+        "light.panel_backlight": SimpleNamespace(attributes={}),
+        "number.panel_volume": SimpleNamespace(
+            attributes={"min": 0, "max": 100, "step": 1}
+        ),
+    }
+    states.update(overrides)
+    return states
+
+
+def _panel(**option_overrides: Any) -> panel_module.PanelConfig:
+    config = panel_module.panel_config_from_options({**PANEL_OPTIONS, **option_overrides})
+    assert config is not None
+    return config
+
+
+def _plan(text: str, states: dict[str, Any] | None = None, **option_overrides: Any):
+    states = _states() if states is None else states
+    cleaned, markers = panel_module.extract_markers(text)
+    calls = panel_module.plan_calls(markers, _panel(**option_overrides), states.get)
+    return cleaned, calls
+
+
+class PanelBridge(FakeBridge):
+    """Records the panel fields the agent adds to the Hermes query."""
+
+    def __init__(self, reply: str) -> None:
+        super().__init__(reply)
+        self.kwargs: list[dict[str, Any]] = []
+
+    async def async_send_conversation_query(
+        self,
+        text: str,
+        conversation_id: str | None = None,
+        language: str = "en",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        self.kwargs.append(kwargs)
+        return await super().async_send_conversation_query(text, conversation_id, language)
+
+
+class FakePanelHass:
+    """Just enough of ``hass`` for the panel path: states, services, tasks."""
+
+    def __init__(self, states: dict[str, Any] | None = None, fail: bool = False) -> None:
+        self._states = _states() if states is None else states
+        self.states = SimpleNamespace(get=self._states.get)
+        self.services = SimpleNamespace(async_call=self._async_call)
+        self.calls: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
+        self.tasks: list[Any] = []
+        self._fail = fail
+
+    async def _async_call(self, domain, service, data, **kwargs):
+        self.calls.append((domain, service, data, kwargs))
+        if self._fail:
+            raise RuntimeError("device offline")
+
+    def async_create_task(self, coro, name=None):
+        self.tasks.append((coro, name))
+        return coro
+
+    async def run_tasks(self) -> None:
+        for coro, _name in self.tasks:
+            await coro
+
+
+def _panel_agent(reply: str, options: dict[str, Any] | None = None, **hass_kwargs):
+    panel_options = PANEL_OPTIONS if options is None else options
+    entry = SimpleNamespace(
+        options={CONF_LOCAL_INTENTS: LOCAL_INTENTS_OFF, **panel_options},
+        entry_id="entry-1",
+    )
+    bridge = PanelBridge(reply)
+    agent = agent_module.HermesConversationAgent(bridge, "entry-1", entry)
+    agent.hass = FakePanelHass(**hass_kwargs)
+    return agent, bridge, agent.hass
+
+
+def _panel_input(text: str, device_id: str | None = PANEL_DEVICE, context: Any = None):
+    return _CONVERSATION.ConversationInput(
+        text=text, conversation_id="cid-1", device_id=device_id, context=context
+    )
+
+
+@needs_stubs
+def test_markers_are_removed_from_speech_and_parsed() -> None:
+    cleaned, markers = panel_module.extract_markers(
+        '[HW:/display/info:{"text":"14:30"}] [HW:/light:{"brightness_pct":40}]'
+        "It's half past two."
+    )
+
+    assert cleaned == "It's half past two."
+    assert markers == [
+        panel_module.Marker("/display/info", {"text": "14:30"}),
+        panel_module.Marker("/light", {"brightness_pct": 40}),
+    ]
+
+
+@needs_stubs
+def test_marker_body_may_contain_closing_brackets() -> None:
+    cleaned, markers = panel_module.extract_markers(
+        '[HW:/display/info:{"text":"[1] Kitchen"}] Done.'
+    )
+    assert cleaned == "Done."
+    assert markers == [panel_module.Marker("/display/info", {"text": "[1] Kitchen"})]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        '[HW:/light:{"brightness_pct":40] Okay.',  # broken JSON
+        '[HW:/light:{"brightness_pct":40} Okay.',  # missing closing bracket
+        "[HW:/light:40] Okay.",  # body is not a JSON object
+        '[HW:/light:["brightness_pct",40]] Okay.',  # JSON, but not an object
+        '[HW:{"brightness_pct":40}] Okay.',  # no route
+        '[light](HW:/light:{"brightness_pct":40}) Okay.',  # link-style
+        '[HW:/light:{"brightness_pct":40',  # cut off at the end of the reply
+    ],
+)
+@needs_stubs
+def test_malformed_markers_are_removed_but_never_run(reply: str) -> None:
+    cleaned, calls = _plan(reply)
+
+    assert "HW:" not in cleaned
+    assert "brightness" not in cleaned
+    assert calls == []
+
+
+@needs_stubs
+def test_link_style_marker_keeps_its_label() -> None:
+    cleaned, markers = panel_module.extract_markers(
+        'Turning the [screen](HW:/light:{"brightness_pct":40}) down.'
+    )
+    assert cleaned == "Turning the screen down."
+    assert markers == []
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "The HW: prefix means hardware.",
+        "Step [1] is done [note: check later].",
+        "",
+    ],
+)
+@needs_stubs
+def test_text_without_markers_is_unchanged(reply: str) -> None:
+    assert panel_module.extract_markers(reply) == (reply, [])
+
+
+@needs_stubs
+def test_brightness_and_volume_are_clamped_to_configured_range() -> None:
+    _cleaned, calls = _plan(
+        '[HW:/light:{"brightness_pct":100}][HW:/volume:{"value":5}] Okay.'
+    )
+    assert calls == [
+        panel_module.ServiceCall(
+            "light", "turn_on", {"entity_id": "light.panel_backlight", "brightness_pct": 80}
+        ),
+        panel_module.ServiceCall(
+            "number", "set_value", {"entity_id": "number.panel_volume", "value": 20}
+        ),
+    ]
+
+    _cleaned, calls = _plan('[HW:/light:{"brightness_pct":0}] Okay.')
+    assert calls[0].data["brightness_pct"] == 10
+
+
+@needs_stubs
+def test_volume_percent_maps_onto_entity_range_and_step() -> None:
+    states = _states(
+        **{
+            "number.panel_volume": SimpleNamespace(
+                attributes={"min": 0, "max": 1, "step": 0.05}
+            )
+        }
+    )
+    _cleaned, calls = _plan('[HW:/volume:{"value":33}] Okay.', states)
+    assert calls == [
+        panel_module.ServiceCall(
+            "number", "set_value", {"entity_id": "number.panel_volume", "value": 0.35}
+        )
+    ]
+
+
+@needs_stubs
+def test_volume_is_skipped_when_entity_has_no_range() -> None:
+    states = _states(**{"number.panel_volume": SimpleNamespace(attributes={})})
+    _cleaned, calls = _plan('[HW:/volume:{"value":50}] Okay.', states)
+    assert calls == []
+
+
+@needs_stubs
+def test_hud_text_is_cut_to_the_lowest_limit_and_flattened() -> None:
+    states = _states(**{"text.panel_hud": SimpleNamespace(attributes={"max": 10})})
+    _cleaned, calls = _plan(
+        '[HW:/display/info:{"text":"Kitchen\\nlights are on"}] Okay.', states
+    )
+    assert calls == [
+        panel_module.ServiceCall(
+            "text", "set_value", {"entity_id": "text.panel_hud", "value": "Kitchen li"}
+        )
+    ]
+
+    _cleaned, calls = _plan(
+        '[HW:/display/info:{"text":"abcdefghij"}] Okay.',
+        **{CONF_PANEL_HUD_MAX_LENGTH: 4},
+    )
+    assert calls[0].data["value"] == "abcd"
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        '[HW:/light:{"brightness_pct":true}]',
+        '[HW:/light:{"brightness_pct":"40"}]',
+        '[HW:/light:{"brightness_pct":NaN}]',
+        '[HW:/light:{"brightness_pct":Infinity}]',
+        '[HW:/volume:{"value":null}]',
+        '[HW:/display/info:{"text":{"nested":1}}]',
+        '[HW:/display/info:{"subtitle":"no text"}]',
+    ],
+)
+@needs_stubs
+def test_markers_with_unusable_values_are_skipped(marker: str) -> None:
+    cleaned, calls = _plan(f"{marker} Okay.")
+    assert cleaned == "Okay."
+    assert calls == []
+
+
+@needs_stubs
+def test_unknown_disabled_and_missing_routes_are_dropped() -> None:
+    reply = (
+        '[HW:/door/unlock:{"value":1}]'
+        '[HW:/volume:{"value":50}]'
+        '[HW:/light:{"brightness_pct":50}]'
+        " Okay."
+    )
+    states = _states()
+    del states["light.panel_backlight"]
+
+    cleaned, calls = _plan(reply, states, **{CONF_PANEL_VOLUME_ENTITY: ""})
+
+    assert cleaned == "Okay."
+    assert calls == []
+
+
+@needs_stubs
+def test_only_the_first_marker_per_route_runs() -> None:
+    _cleaned, calls = _plan(
+        '[HW:/light:{"brightness_pct":30}][HW:/light:{"brightness_pct":70}] Okay.'
+    )
+    assert [call.data["brightness_pct"] for call in calls] == [30]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {CONF_PANEL_DEVICE: ""},
+        {
+            CONF_PANEL_HUD_ENTITY: "",
+            CONF_PANEL_LIGHT_ENTITY: "",
+            CONF_PANEL_VOLUME_ENTITY: "",
+        },
+        {
+            # Entities from the wrong domain never enable a route.
+            CONF_PANEL_HUD_ENTITY: "lock.front_door",
+            CONF_PANEL_LIGHT_ENTITY: "switch.heater",
+            CONF_PANEL_VOLUME_ENTITY: "light.kitchen",
+        },
+    ],
+)
+@needs_stubs
+def test_panel_feature_is_off_until_device_and_entity_are_set(overrides) -> None:
+    assert panel_module.panel_config_from_options({**PANEL_OPTIONS, **overrides}) is None
+    assert panel_module.panel_config_from_options({}) is None
+    assert panel_module.panel_config_from_options(None) is None
+
+
+@needs_stubs
+def test_panel_limits_are_normalised() -> None:
+    config = _panel(
+        **{
+            CONF_PANEL_BRIGHTNESS_MIN: 90,
+            CONF_PANEL_BRIGHTNESS_MAX: 50,
+            CONF_PANEL_VOLUME_MAX: 500,
+            CONF_PANEL_HUD_MAX_LENGTH: 10_000,
+        }
+    )
+    assert (config.brightness_min, config.brightness_max) == (50, 50)
+    assert config.volume_max == 100
+    assert config.hud_max_length == 255
+    assert config.as_payload() == {
+        "routes": {
+            "/display/info": {"max_length": 255},
+            "/light": {"min": 50, "max": 50},
+            "/volume": {"min": 20, "max": 100},
+        }
+    }
+
+
+@needs_stubs
+async def test_panel_turn_dispatches_bounded_calls_and_speaks_clean_text() -> None:
+    reply = (
+        '[HW:/display/info:{"text":"Lights off"}] [HW:/light:{"brightness_pct":100}] '
+        "All the downstairs lights are off."
+    )
+    agent, bridge, hass = _panel_agent(reply)
+    context = object()
+
+    result = await agent.async_process(_panel_input("turn off downstairs", context=context))
+
+    assert _speech(result) == "All the downstairs lights are off."
+    assert bridge.kwargs == [
+        {
+            "device_id": PANEL_DEVICE,
+            "panel": {
+                "routes": {
+                    "/display/info": {"max_length": 60},
+                    "/light": {"min": 10, "max": 80},
+                    "/volume": {"min": 20, "max": 70},
+                }
+            },
+        }
+    ]
+    # Calls run in a background task, never inline with the reply.
+    assert hass.calls == []
+    assert len(hass.tasks) == 1
+    await hass.run_tasks()
+    assert hass.calls == [
+        (
+            "text",
+            "set_value",
+            {"entity_id": "text.panel_hud", "value": "Lights off"},
+            {"blocking": False, "context": context},
+        ),
+        (
+            "light",
+            "turn_on",
+            {"entity_id": "light.panel_backlight", "brightness_pct": 80},
+            {"blocking": False, "context": context},
+        ),
+    ]
+
+
+@needs_stubs
+async def test_marker_only_reply_speaks_a_short_confirmation() -> None:
+    agent, _bridge, hass = _panel_agent('[HW:/volume:{"value":40}]')
+
+    result = await agent.async_process(_panel_input("volume to forty"))
+
+    assert _speech(result) == "Done."
+    await hass.run_tasks()
+    assert hass.calls[0][:3] == (
+        "number",
+        "set_value",
+        {"entity_id": "number.panel_volume", "value": 40},
+    )
+
+
+@needs_stubs
+async def test_device_failure_does_not_break_the_reply() -> None:
+    agent, _bridge, hass = _panel_agent(
+        '[HW:/light:{"brightness_pct":40}] Dimmed.', fail=True
+    )
+
+    result = await agent.async_process(_panel_input("dim the screen"))
+
+    assert _speech(result) == "Dimmed."
+    await hass.run_tasks()  # the failure is logged, not raised
+    assert len(hass.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("device_id", "options"),
+    [
+        ("kitchen-speaker", None),  # a different Assist device
+        (None, None),  # typed in the HA UI, no device
+        (PANEL_DEVICE, {}),  # feature not configured
+    ],
+)
+@needs_stubs
+async def test_non_panel_turns_keep_the_original_payload_and_reply(
+    device_id, options
+) -> None:
+    reply = '[HW:/light:{"brightness_pct":40}] Okay.'
+    agent, bridge, hass = _panel_agent(reply, options=options)
+
+    result = await agent.async_process(_panel_input("hello", device_id=device_id))
+
+    assert bridge.kwargs == [{}]
+    assert _speech(result) == reply
+    assert hass.tasks == []
+
+
+@needs_stubs
+async def test_bridge_adds_panel_fields_only_when_given(monkeypatch) -> None:
+    from custom_components.hermes import HermesBridge
+
+    sent: list[dict[str, Any]] = []
+
+    class _RecordingWS:
+        async def send_json(self, payload: dict[str, Any]) -> None:
+            sent.append(payload)
+
+    async def fake_wait_for(future, timeout=None):
+        future.cancel()
+        return {"text": "ok"}
+
+    monkeypatch.setattr("custom_components.hermes.asyncio.wait_for", fake_wait_for)
+    bridge = SimpleNamespace(_pending_queries={}, _connected=True, _ws=_RecordingWS())
+
+    await HermesBridge.async_send_conversation_query(bridge, text="hi", conversation_id="c1")
+    await HermesBridge.async_send_conversation_query(
+        bridge,
+        text="hi",
+        conversation_id="c2",
+        device_id=PANEL_DEVICE,
+        panel={"routes": {"/light": {"min": 10, "max": 80}}},
+    )
+
+    assert sent[0] == {
+        "type": "assist_query",
+        "text": "hi",
+        "conversation_id": "c1",
+        "language": "en",
+    }
+    assert sent[1]["device_id"] == PANEL_DEVICE
+    assert sent[1]["panel"] == {"routes": {"/light": {"min": 10, "max": 80}}}
+
+
+@needs_stubs
+async def test_options_flow_panel_step_saves_normalised_values() -> None:
+    entry = SimpleNamespace(options={"entity_filter": ["light.kitchen"]})
+    flow = config_flow_module.HermesOptionsFlow(entry)
+    await flow.async_step_init({"entity_filter": "light.kitchen", "verify_ssl": True})
+    result = await flow.async_step_voice({})
+    assert result["step_id"] == "panel"
+
+    result = await flow.async_step_panel(
+        {
+            CONF_PANEL_DEVICE: f" {PANEL_DEVICE} ",
+            CONF_PANEL_HUD_ENTITY: "text.panel_hud",
+            CONF_PANEL_LIGHT_ENTITY: "switch.not_a_light",
+            CONF_PANEL_BRIGHTNESS_MAX: 150,
+        }
+    )
+
+    assert result["type"] == "create_entry"
+    data = result["data"]
+    assert data[CONF_PANEL_DEVICE] == PANEL_DEVICE
+    assert data[CONF_PANEL_HUD_ENTITY] == "text.panel_hud"
+    assert data[CONF_PANEL_LIGHT_ENTITY] == ""
+    assert data[CONF_PANEL_VOLUME_ENTITY] == ""
+    assert data[CONF_PANEL_BRIGHTNESS_MAX] == 100
+    assert data["entity_filter"] == ["light.kitchen"]
+
+
+@needs_stubs
+async def test_options_flow_panel_step_rejects_min_above_max() -> None:
+    flow = config_flow_module.HermesOptionsFlow(SimpleNamespace(options={}))
+
+    result = await flow.async_step_panel(
+        {CONF_PANEL_VOLUME_MIN: 90, CONF_PANEL_VOLUME_MAX: 30}
+    )
+
+    assert result["type"] == "form"
+    assert result["errors"] == {CONF_PANEL_VOLUME_MIN: "panel_min_above_max"}

@@ -340,19 +340,28 @@ async def _handle_assist_query_with_llm(ctx: Any, payload: dict[str, Any]) -> di
     conversation platform. It intentionally uses ``ctx.llm`` rather than a
     placeholder acknowledgement so Home Assistant receives a real spoken reply.
     """
+    from .panel_prompt import panel_instructions
+
     text = str(payload.get("text") or "").strip()
     language = str(payload.get("language") or "en")
     conversation_id = payload.get("conversation_id")
+
+    system_prompt = (
+        "You are Hermes, responding through Home Assistant Assist. "
+        "Reply naturally and concisely for text-to-speech. "
+        "If the request needs unavailable context, ask one brief clarification."
+    )
+    # Present only for turns from the voice panel configured in Home
+    # Assistant (#58); otherwise the prompt is unchanged.
+    panel_rules = panel_instructions(payload.get("panel"))
+    if panel_rules:
+        system_prompt = f"{system_prompt}\n\n{panel_rules}"
 
     result = await ctx.llm.acomplete(
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You are Hermes, responding through Home Assistant Assist. "
-                    "Reply naturally and concisely for text-to-speech. "
-                    "If the request needs unavailable context, ask one brief clarification."
-                ),
+                "content": system_prompt,
             },
             {
                 "role": "user",

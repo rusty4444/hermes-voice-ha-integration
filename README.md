@@ -378,7 +378,7 @@ The integration adds:
 
 After adding the integration, open **Settings → Devices &amp; services → Hermes Voice Assistant → Options**.
 
-The options flow has two pages.
+The options flow has three pages. The third, voice panel control, is optional and off unless you fill it in.
 
 ### Page 1 — Allow-listed entities, SSL &amp; local handling
 
@@ -426,6 +426,41 @@ Four safety properties apply to this integration-level local path:
 - **`answers` mode filters before execution.** Only a small allow-list of read-only built-in query intent names reaches HA's intent handlers. This is based on the matched intent name rather than `response_type`, because HA's date, time, and timer handlers may return `ACTION_DONE` despite being read-only.
 
 > **Security note (`commands` mode):** requests handled locally never reach Hermes, so they are not filtered by the Hermes Home Assistant plugin's allow-list/block-list and never appear in its audit log. The path executes recognised HA intents only and does not run sentence-trigger automations. Home Assistant's own entity-exposure boundaries still apply. Turn `commands` on only if that trade-off is acceptable; leave it `off` if your allow-list is what keeps unsafe entities out of voice control.
+
+### Page 3 — Voice panel control (optional, off by default)
+
+If one of your Assist devices is a voice panel with a screen (an ESP32 display satellite, for example), Hermes can show a line of text on it and set its screen brightness and speaker volume as part of a normal reply. It does this with markers at the start of the reply, which Home Assistant removes before the reply is spoken:
+
+```text
+[HW:/display/info:{"text":"Lights off"}] [HW:/light:{"brightness_pct":40}] All the downstairs lights are off.
+```
+
+The panel speaks "All the downstairs lights are off.", its HUD shows "Lights off" and its screen dims to 40 %. The convention comes from [@byjaps](https://github.com/byjaps)' proposal in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58).
+
+| Field | What to enter |
+|---|---|
+| **Panel device** | The Assist satellite device that is the panel. Leave empty to keep the feature off. |
+| **HUD text entity** | A `text.*` or `input_text.*` entity the panel displays. Enables `/display/info`. |
+| **Screen light** | The panel's backlight `light.*` entity. Enables `/light`. |
+| **Speaker volume entity** | A `number.*` or `input_number.*` entity for the panel speaker. Enables `/volume`. |
+| **Maximum HUD text length** | Longer text is cut to this length (default 60), or to the entity's own maximum if that is lower. |
+| **Minimum / maximum screen brightness** | Range every brightness request is clamped to (default 10–100 %). |
+| **Minimum / maximum speaker volume** | Range every volume request is clamped to (default 20–80 %). The percentage is mapped onto the entity's own min–max range and step. |
+
+How it behaves:
+
+- **Only the configured panel, only configured routes.** Markers are handled only for Assist requests from the selected device, and only for routes that have an entity. Requests from other devices, typed requests and installs without a panel device send the same `assist_query` as before and get the reply unchanged.
+- **Hermes is told the routes and limits.** For panel requests the integration adds `device_id` and a `panel` object to `assist_query`. The bundled `voice_stack` receiver uses it to describe the marker convention, with your limits, in its system prompt. Other requests use the old prompt.
+- **Limits are enforced in Home Assistant, not by the model.** Brightness and volume are clamped to your ranges whatever the reply asks for. A reply can't name its own entity, so markers can only reach the three entities you picked.
+- **Clean first, run only what parses.** Every marker-shaped span is removed from the speech, including broken ones, so a half-written marker is never read aloud. Only a well-formed marker with a JSON object body runs. Unknown routes, routes without an entity, missing entities and non-numeric values are skipped and logged. Only the first marker per route runs.
+- **The reply never waits for the panel.** Service calls run in a background task with `blocking=False`. A slow or offline panel is logged and doesn't delay or break the reply. If a reply contains only markers, the panel says a short "Done." (localised for a few languages) instead of going silent.
+
+Requirements and limitations:
+
+- Use the Home Assistant integration and the Hermes plugins from the **same release**. An older `voice_stack` plugin ignores the `panel` field, so Hermes never learns the convention and no markers are produced.
+- The model decides when to use a marker. The integration only guarantees what happens to markers once they arrive.
+- The panel's ESPHome (or other) firmware has to expose the HUD text, backlight and volume as Home Assistant entities. This integration doesn't talk to the device directly.
+- Tested with mocked Home Assistant objects, not yet on a live panel.
 
 ---
 
@@ -810,6 +845,8 @@ The HA integration sends this when a user speaks or types to the Assist pipeline
 | `text` | `string` | The user's input text from the Assist pipeline. |
 | `conversation_id` | `string` | HA-generated ID scoped to a conversation turn. Echo it back unchanged on the response. |
 | `language` | `string` | Language code from the Assist pipeline (e.g. `"en"`). |
+| `device_id` | `string`, optional | Sent only for requests from the configured voice panel (see [Page 3](#page-3--voice-panel-control-optional-off-by-default)). |
+| `panel` | `object`, optional | Sent only with `device_id`. Lists the enabled marker routes and their limits, e.g. `{"routes": {"/light": {"min": 10, "max": 100}}}`. Receivers that don't support panel markers can ignore it. |
 
 ### `assist_response` — outgoing (Hermes Agent sends)
 

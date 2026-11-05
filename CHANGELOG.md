@@ -4,6 +4,9 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+### Added
+- Optional voice-panel control through inline `[HW:...]` markers, off by default. A new third options page selects one panel device and its HUD text, screen light and speaker volume entities, with length, brightness and volume limits. For requests from that device only, `assist_query` carries `device_id` and a `panel` route/limit description, the bundled `voice_stack` receiver adds the marker convention to its prompt, and the reply's markers are removed before speech and turned into bounded, non-blocking service calls. Broken markers are removed but never run; unknown routes and missing entities are skipped. All other requests keep the previous payload, prompt and reply. ([#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58), design by Joel Silva [@byjaps](https://github.com/byjaps).)
+
 ## [0.0.18] - 2026-10-27
 
 ### Fixed

@@ -30,6 +30,27 @@ LOCAL_INTENTS_OPTIONS = [
     LOCAL_INTENTS_COMMANDS,
 ]
 
+# Opt-in voice-panel control through inline [HW:...] markers (#58). Every
+# route stays disabled until a panel device and its entity are configured.
+CONF_PANEL_DEVICE = "panel_device_id"
+CONF_PANEL_HUD_ENTITY = "panel_hud_entity"
+CONF_PANEL_LIGHT_ENTITY = "panel_light_entity"
+CONF_PANEL_VOLUME_ENTITY = "panel_volume_entity"
+CONF_PANEL_HUD_MAX_LENGTH = "panel_hud_max_length"
+CONF_PANEL_BRIGHTNESS_MIN = "panel_brightness_min"
+CONF_PANEL_BRIGHTNESS_MAX = "panel_brightness_max"
+CONF_PANEL_VOLUME_MIN = "panel_volume_min"
+CONF_PANEL_VOLUME_MAX = "panel_volume_max"
+PANEL_HUD_DOMAINS = ("text", "input_text")
+PANEL_LIGHT_DOMAINS = ("light",)
+PANEL_VOLUME_DOMAINS = ("number", "input_number")
+DEFAULT_PANEL_HUD_MAX_LENGTH = 60
+PANEL_HUD_MAX_LENGTH_LIMIT = 255
+DEFAULT_PANEL_BRIGHTNESS_MIN = 10
+DEFAULT_PANEL_BRIGHTNESS_MAX = 100
+DEFAULT_PANEL_VOLUME_MIN = 20
+DEFAULT_PANEL_VOLUME_MAX = 80
+
 # Defaults
 DEFAULT_ENTITY_FILTER: list[str] = []
 DEFAULT_VERIFY_SSL: bool = True
