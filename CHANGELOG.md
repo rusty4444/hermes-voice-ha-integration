@@ -4,8 +4,16 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+## [0.0.20] - 2026-11-12
+
 ### Fixed
-- Strip inline `[HW:...]` markers from speech on non-panel turns while continuing to advertise and dispatch panel routes only on turns from the configured panel device. This prevents a shared conversation session that used the panel earlier from reading a stray marker aloud through TTS on a follow-up request without `device_id`. (Reported and verified on ESP32-S3 hardware by Joel Silva [@byjaps](https://github.com/byjaps) in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58).)
+- Strip inline `[HW:...]` markers from speech on non-panel turns while continuing to advertise and dispatch panel routes only on turns from the configured panel device. This prevents a shared conversation session that used the panel earlier from reading a stray marker out loud on a follow-up turn without `device_id` or from another device ([#65](https://github.com/rusty4444/hermes-voice-ha-integration/pull/65); reported on real hardware by Joel Silva [@byjaps](https://github.com/byjaps) in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58)).
+
+### Release metadata
+- Align all five installation-surface versions, the lockfile and version assertions at 0.0.20.
+
+### Validation and limitations
+- Automated tests use mocked Home Assistant objects and loopback clients, not a live multi-device voice acceptance run. Issue [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58) remains open until @byjaps confirms the non-panel stripping fix on hardware. The add-on remains an early scaffold.
 
 ## [0.0.19] - 2026-11-06
 

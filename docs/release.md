@@ -10,17 +10,15 @@ This repository ships three installation surfaces:
 
 The Python wheel is intentionally plugin-focused. The source distribution and GitHub tag contain the full bundle, including the Home Assistant custom component, add-on scaffold, docs, and skills.
 
-## v0.0.19 release notes (2026-11-06)
+## v0.0.20 release notes (2026-11-12)
 
-- Add optional voice-panel control through `[HW:...]` markers, off until a panel device and at least one route entity are configured ([#63](https://github.com/rusty4444/hermes-voice-ha-integration/pull/63), proposed in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58)). Home Assistant removes every marker before speech, runs only well-formed ones on the configured entities, clamps brightness and volume, and dispatches without blocking the reply. Requests from other devices keep the previous payload, prompt and reply.
-- Correct the README's Assist round-trip documentation: the bundled `voice_stack` plugin answers `assist_query` ([#61](https://github.com/rusty4444/hermes-voice-ha-integration/pull/61), for [#60](https://github.com/rusty4444/hermes-voice-ha-integration/issues/60) and [#33](https://github.com/rusty4444/hermes-voice-ha-integration/issues/33)).
-- Pin the duplicate static-route guard from v0.0.14 to real aiohttp's error ([#62](https://github.com/rusty4444/hermes-voice-ha-integration/pull/62), for [#43](https://github.com/rusty4444/hermes-voice-ha-integration/issues/43)).
-- Keep the Python package, HACS integration, add-on scaffold, both Hermes plugin manifests, lockfile and version assertions aligned at 0.0.19.
-- Thanks to Joel Silva ([@byjaps](https://github.com/byjaps)) for the panel-marker design and reference implementation.
+- Strip inline `[HW:...]` markers from speech on non-panel turns while continuing to advertise and dispatch panel routes only when the turn comes from the configured panel device ([#65](https://github.com/rusty4444/hermes-voice-ha-integration/pull/65), for [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58)). This prevents a shared conversation session that used the panel earlier from reading a stray marker out loud on a follow-up turn without `device_id` or from another device.
+- Keep the Python package, HACS integration, add-on scaffold, both Hermes plugin manifests, lockfile and version assertions aligned at 0.0.20.
+- Thanks to Joel Silva ([@byjaps](https://github.com/byjaps)) for hardware verification and reporting the non-panel follow-up case in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58).
 
 ### Upgrade and reporter confirmation
 
-Update the HA integration through HACS or manual copy, reinstall the Hermes-side plugins using the v0.0.19 pip command in the README, and restart Home Assistant and the Hermes process owning the receiver port. That can be `hermes dashboard` rather than the gateway. Updating HACS alone does not replace the Hermes-side plugins, and panel markers need both sides from this release.
+Update the HA integration through HACS or manual copy, reinstall the Hermes-side plugins using the v0.0.20 pip command in the README, and restart Home Assistant and the Hermes process owning the receiver port. That can be `hermes dashboard` rather than the gateway. Updating HACS alone does not replace the Hermes-side plugins, and panel markers need both sides from this release.
 
 Issues #33, #43, #58 and #60 stay open until their reporters confirm. Local automated tests use mocked HA objects and loopback WebSocket clients; they do not establish live Home Assistant, panel hardware or end-to-end voice compatibility. Edge TTS requires an external service, and the add-on remains an early scaffold.
 
