@@ -27,7 +27,7 @@ This repository is a bundle of three pieces:
 
 The Python wheel is intentionally plugin-focused. Use the GitHub tag or source distribution for the full HACS/custom-component/add-on bundle.
 
-> **v0.0.19 (2026-11-06):** adds optional voice-panel control: with a panel device configured, Hermes can show HUD text and set screen brightness and speaker volume through `[HW:...]` markers that Home Assistant removes before speech and clamps to your limits. It's off by default and other requests are unchanged; see [Page 3](#page-3--voice-panel-control-optional-off-by-default). Thanks to Joel Silva ([@byjaps](https://github.com/byjaps)) for the design in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58). The README also now says plainly that the bundled `voice_stack` plugin answers Assist queries ([#60](https://github.com/rusty4444/hermes-voice-ha-integration/issues/60), [#33](https://github.com/rusty4444/hermes-voice-ha-integration/issues/33)). Update both the HA integration and the Hermes-side plugins, then restart Home Assistant and the Hermes process owning the receiver port, which may be `hermes dashboard` rather than the gateway. See the [changelog](CHANGELOG.md) for scope and limitations.
+> **v0.0.20 (2026-11-12):** strips inline `[HW:...]` markers from speech on every Assist turn while keeping route advertisement and entity execution strictly limited to turns from the configured panel device ([#65](https://github.com/rusty4444/hermes-voice-ha-integration/pull/65)), so a shared conversation session that used the panel earlier cannot read a stray marker out loud on a follow-up turn without `device_id` or from another device. Thanks to Joel Silva ([@byjaps](https://github.com/byjaps)) for hardware verification and reporting in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58). Update the HA integration (and Hermes-side plugins if upgrading from before v0.0.19), then restart Home Assistant. See the [changelog](CHANGELOG.md) for scope and limitations.
 
 ---
 
@@ -162,7 +162,7 @@ Keep this token private. It can control your Home Assistant instance with your a
 Install or upgrade the package directly from GitHub, then run the bundled plugin installer:
 
 ```bash
-python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.19"
+python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.20"
 hermes-ha-install-plugins
 ```
 
@@ -785,7 +785,7 @@ The receiver that answers `assist_query` is the bundled `voice_stack` plugin; it
 1. **The Hermes-side plugins are current.** HACS updates only the Home Assistant integration. Reinstall the plugins from the same release, as in [Step 3](#step-3--install-the-hermes-plugins):
 
    ```bash
-   python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.19"
+   python3 -m pip install --upgrade "hermes-voice-ha-integration @ git+https://github.com/rusty4444/hermes-voice-ha-integration.git@v0.0.20"
    hermes-ha-install-plugins
    ```
 
