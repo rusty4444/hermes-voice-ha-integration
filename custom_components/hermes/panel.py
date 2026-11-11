@@ -10,11 +10,12 @@ reply with markers such as::
 The markers are removed before text-to-speech and turned into Home Assistant
 service calls on the configured entities. Rules:
 
-* Nothing happens unless a panel device and at least one route entity are
+* Nothing is dispatched unless a panel device and at least one route entity are
   configured, and the Assist request carries that device's ``device_id``.
 * Clean first, execute only what parses: every marker-shaped span is removed
-  from the speech, even broken ones, but only well-formed markers for an
-  enabled route run.
+  from the speech on every turn (so a shared conversation session never reads a
+  stray marker aloud), even broken ones, but only well-formed markers for an
+  enabled route run on panel turns.
 * Limits are enforced here, below the model. Brightness and volume are clamped
   to the configured range whatever the reply asks for.
 * At most one call per route per reply, dispatched without blocking the reply.

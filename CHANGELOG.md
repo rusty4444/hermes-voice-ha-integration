@@ -4,6 +4,9 @@ All notable changes to the hermes-voice-ha-integration project.
 
 ## [Unreleased]
 
+### Fixed
+- Strip inline `[HW:...]` markers from speech on non-panel turns while continuing to advertise and dispatch panel routes only on turns from the configured panel device. This prevents a shared conversation session that used the panel earlier from reading a stray marker aloud through TTS on a follow-up request without `device_id`. (Reported and verified on ESP32-S3 hardware by Joel Silva [@byjaps](https://github.com/byjaps) in [#58](https://github.com/rusty4444/hermes-voice-ha-integration/issues/58).)
+
 ## [0.0.19] - 2026-11-06
 
 ### Added

@@ -1177,7 +1177,7 @@ async def test_device_failure_does_not_break_the_reply() -> None:
     ],
 )
 @needs_stubs
-async def test_non_panel_turns_keep_the_original_payload_and_reply(
+async def test_non_panel_turns_strip_markers_without_dispatching(
     device_id, options
 ) -> None:
     reply = '[HW:/light:{"brightness_pct":40}] Okay.'
@@ -1186,8 +1186,21 @@ async def test_non_panel_turns_keep_the_original_payload_and_reply(
     result = await agent.async_process(_panel_input("hello", device_id=device_id))
 
     assert bridge.kwargs == [{}]
-    assert _speech(result) == reply
+    assert _speech(result) == "Okay."
     assert hass.tasks == []
+    assert hass.calls == []
+
+
+@needs_stubs
+async def test_non_panel_marker_only_reply_does_not_claim_done() -> None:
+    agent, bridge, hass = _panel_agent('[HW:/display/info:{"text":"23:28"}]')
+
+    result = await agent.async_process(_panel_input("what time is it", device_id=None))
+
+    assert bridge.kwargs == [{}]
+    assert _speech(result) == "I processed your request but got no response."
+    assert hass.tasks == []
+    assert hass.calls == []
 
 
 @needs_stubs
