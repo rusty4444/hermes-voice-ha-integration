@@ -454,17 +454,21 @@ class HermesConversationAgent(ConversationEntity):
         )
 
     def _apply_panel_markers(
-        self, panel: PanelConfig, speech: str, language: str, context: Any
+        self, panel: PanelConfig | None, speech: str, language: str, context: Any
     ) -> str:
-        """Strip panel markers from ``speech`` and dispatch the valid ones.
+        """Strip panel markers from ``speech`` and dispatch valid ones on panel turns.
 
-        Every marker-shaped span is removed, but only well-formed markers for
-        enabled routes run, within the configured limits. Service calls run in
-        a background task, so a slow or failing device never delays the reply.
+        Every marker-shaped span is removed on all turns so a session that used
+        the panel earlier cannot leak raw ``[HW:...]`` markers into TTS on a
+        later non-panel turn. Service calls are planned and dispatched in a
+        background task only when ``panel`` is set, within configured limits.
         """
         cleaned, markers = extract_markers(speech)
         if not markers and cleaned == speech:
             return speech
+
+        if panel is None:
+            return cleaned
 
         calls = plan_calls(markers, panel, self.hass.states.get)
         if calls:
@@ -516,8 +520,9 @@ class HermesConversationAgent(ConversationEntity):
         if local_result is not None:
             return local_result
 
-        # Opt-in panel control (#58): only for turns from the configured panel
-        # device. Every other request keeps the original payload and reply.
+        # Opt-in panel control (#58): only turns from the configured panel
+        # device advertise routes or dispatch calls; stray markers are still
+        # stripped from speech on other turns.
         panel = panel_for_turn(
             getattr(self._entry, "options", None),
             getattr(user_input, "device_id", None),
@@ -555,7 +560,7 @@ class HermesConversationAgent(ConversationEntity):
         else:
             response_speech = response_text
 
-        if panel is not None and response_speech:
+        if response_speech:
             response_speech = self._apply_panel_markers(
                 panel, str(response_speech), language, getattr(user_input, "context", None)
             )

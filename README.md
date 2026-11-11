@@ -451,7 +451,7 @@ The panel speaks "All the downstairs lights are off.", its HUD shows "Lights off
 
 How it behaves:
 
-- **Only the configured panel, only configured routes.** Markers are handled only for Assist requests from the selected device, and only for routes that have an entity. Requests from other devices, typed requests and installs without a panel device send the same `assist_query` as before and get the reply unchanged.
+- **Only the configured panel, only configured routes.** Markers are advertised and executed only for Assist requests from the selected device, and only for routes that have an entity. Requests from other devices, typed requests and installs without a panel device send the same `assist_query` as before and never trigger panel service calls, though any stray `[HW:...]` marker is still stripped before speech so a shared conversation session cannot read it aloud.
 - **Hermes is told the routes and limits.** For panel requests the integration adds `device_id` and a `panel` object to `assist_query`. The bundled `voice_stack` receiver uses it to describe the marker convention, with your limits, in its system prompt. Other requests use the old prompt.
 - **Limits are enforced in Home Assistant, not by the model.** Brightness and volume are clamped to your ranges whatever the reply asks for. A reply can't name its own entity, so markers can only reach the three entities you picked.
 - **Clean first, run only what parses.** Every marker-shaped span is removed from the speech, including broken ones, so a half-written marker is never read aloud. Only a well-formed marker with a JSON object body runs. Unknown routes, routes without an entity, missing entities and non-numeric values are skipped and logged. Only the first marker per route runs.
